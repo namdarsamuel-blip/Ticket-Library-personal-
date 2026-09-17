@@ -4015,6 +4015,13 @@ async function pollRemote(){
 // Pushes the currently-loaded sheet's events (with notes/rating/pin/prices
 // merged in) to the Sheet. The response is the full authoritative dataset,
 // so remoteCache is refreshed from it directly — no separate local write.
+// The actual error text from the most recent failed push — nothing
+// visible in this app ever showed real error detail before (see
+// setSyncStatus's own comment), which made a real, live save failure
+// impossible to diagnose from a bug report alone. Read by
+// handleCsvUpload's alert so a failure comes with the real reason
+// attached instead of a generic "didn't save."
+let lastPushError = null;
 async function pushSheetEvents(sheetName, mode, payloadEvents){
   if(!syncUrl){
     setSyncStatus('Not connected — this change was not saved.', 'error');
@@ -4026,8 +4033,11 @@ async function pushSheetEvents(sheetName, mode, payloadEvents){
     if(data && Array.isArray(data.events)) remoteCache = data.events;
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
     setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
+    lastPushError = null;
     return true;
   }catch(err){
+    console.error('[Ticket Library] save failed:', err);
+    lastPushError = (err && err.message) ? err.message : String(err);
     setSyncStatus('Save failed — check your connection and try again.', 'error');
     return false;
   }finally{
@@ -4875,7 +4885,7 @@ async function handleCsvUpload(file, text){
   // warning rather than staying consistent with how quieter routine
   // edits (a single note, a star) are handled.
   if(!saved){
-    alert('This import did NOT save — it may look like it worked right now, but it will disappear the next time this syncs. Check your connection and try uploading the CSV again.');
+    alert(`This import did NOT save — it may look like it worked right now, but it will disappear the next time this syncs.\n\nError detail: ${lastPushError || 'unknown'}\n\nCheck your connection and try uploading the CSV again. If it keeps happening, send that error detail along to get it fixed properly.`);
   }
 }
 
