@@ -3657,34 +3657,33 @@ async function supabaseFetchAll(){
 }
 
 async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
-  // Only touch the `sheets` row itself when this sheet doesn't already
-  // have a CONFIRMED row in the database — checking the local `sheets`
-  // array alone isn't enough, since a brand-new sheet is added there
-  // optimistically the instant it's created, well before anything
-  // about it has actually reached Supabase. pendingEmptySheets exists
-  // specifically to track that gap (see its own declaration) — a real,
-  // live bug came from skipping this row on a sheet that was only
-  // known LOCALLY: the events insert right after it then failed a
-  // foreign-key check against a `sheets` row that didn't exist yet,
-  // silently (nothing visible showed the failure — see the alert added
-  // in handleCsvUpload for exactly that reason), and the import
-  // appeared to work until the next sync reverted it.
-  const stillPending = pendingEmptySheets.some(p => p.name === sheetName);
-  const confirmedInDb = sheets.some(s => s.name === sheetName) && !stillPending;
-  if(!confirmedInDb){
+  // Always ensures the sheet's OWN row exists before touching its
+  // events — this used to be skipped as a speed optimization whenever
+  // the sheet looked "already known" locally, but that local tracking
+  // had more than one gap: more than one code path can add an entry to
+  // the local `sheets` array without it ever having actually reached
+  // the database (a brand-new sheet added the instant it's created, or
+  // a fallback "Sheet 1" created locally on a connection hiccup) — hit
+  // TWICE now by the exact same foreign-key failure as a direct
+  // result. Prefer:resolution=merge-duplicates makes this call a true
+  // upsert, so doing it unconditionally is safe regardless of which of
+  // those paths created the sheet, or whether it's tracked correctly —
+  // it never overwrites anything wrong on a sheet that already exists,
+  // since sort_order (the only thing that COULD clobber something real)
+  // is only ever included when this sheet isn't already known locally.
+  const isKnownLocally = sheets.some(s => s.name === sheetName);
+  const sheetRow = { name: sheetName, mode: sheetMode };
+  if(!isKnownLocally){
     const maxRows = await supabaseRequest('sheets?select=sort_order&order=sort_order.desc&limit=1');
-    const nextOrder = (maxRows && maxRows.length ? maxRows[0].sort_order : -1) + 1;
-    await supabaseRequest('sheets', {
-      method: 'POST',
-      headers: { 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify({ name: sheetName, mode: sheetMode, sort_order: nextOrder })
-    });
-    // Now genuinely confirmed — this function no longer routes through
-    // rebuildSheetsFromCache (see the comment on the locally-constructed
-    // result below), which is what used to clear this flag, so it has
-    // to happen explicitly here instead.
-    pendingEmptySheets = pendingEmptySheets.filter(p => p.name !== sheetName);
+    sheetRow.sort_order = (maxRows && maxRows.length ? maxRows[0].sort_order : -1) + 1;
   }
+  await supabaseRequest('sheets', {
+    method: 'POST',
+    headers: { 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify(sheetRow)
+  });
+  pendingEmptySheets = pendingEmptySheets.filter(p => p.name !== sheetName);
+
   await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}`, { method: 'DELETE' });
   if(payloadEvents.length){
     await supabaseRequest('events', {
