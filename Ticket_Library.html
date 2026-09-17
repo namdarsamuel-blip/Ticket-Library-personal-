@@ -3539,22 +3539,10 @@ const SYNC_POLL_MS = 20000;
 // button anymore to manually connect/disconnect from, the app just
 // always talks to this sheet.
 //
-// ⚠️ PLACEHOLDER — this file is meant to point at its OWN separate
-// Google Sheet, not the same one the main app uses, so this stays a
-// genuinely personal/private data set. To set that up:
-//   1. Open the Google Sheet the main app uses, and make a copy of it
-//      (File → Make a copy) — this carries over its attached Apps
-//      Script (the actual backend code) too, so there's nothing to
-//      rewrite.
-//   2. In that COPY, open Extensions → Apps Script, then Deploy →
-//      New deployment → Web app, and deploy it (same settings as the
-//      original: execute as you, access "Anyone").
-//   3. Copy the new Web App URL it gives you and paste it in below,
-//      replacing this placeholder.
-// Until that's done, this file will show a "could not reach the
-// sheet" message instead of loading — it's not broken, it's just not
-// pointed at anything real yet.
-const DEFAULT_SYNC_URL = 'PASTE_YOUR_NEW_GOOGLE_SHEET_WEB_APP_URL_HERE';
+// Points at this file's OWN separate Google Sheet/Apps Script
+// deployment — not the same one the main (login) app uses — so this
+// stays a genuinely personal/private data set.
+const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxkVSPI7yRrqxBilNNBJiU0mHX6TR1352xmk2NvZYiv5uBk-sqsjnezdBdw46mSqtRBpg/exec';
 
 // No visible status text anymore (the sync popover it used to live in
 // is gone), but this is still called from everywhere a sync
