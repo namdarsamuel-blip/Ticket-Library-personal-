@@ -1745,6 +1745,15 @@
      only the Log out item inside the menu is hidden. */
   #accountMenuLogout{display:none !important;}
 </style>
+<!-- Supabase's realtime client (websocket-based live updates) — loaded
+     from a CDN since this is a single plain HTML file with no build
+     step. Everything else in this file still talks to Supabase via
+     plain fetch(); this is only used for the realtime subscription
+     itself, which isn't practical to hand-roll. If this CDN load ever
+     fails (offline, CDN down), the app still works fine via its
+     existing periodic poll — realtime is a speed upgrade on top of
+     that, not a replacement for it. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
 
@@ -3648,13 +3657,21 @@ async function supabaseFetchAll(){
 }
 
 async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
-  // Only touch the `sheets` row itself when this sheet is genuinely
-  // new — this same function runs on every ordinary note/price/star
-  // edit too (each one "replaces" that sheet's rows), where the sheet
-  // obviously already exists, so skipping this saves a round trip on
-  // every one of those instead of just the rare "brand new tab" case.
-  const alreadyKnown = sheets.some(s => s.name === sheetName);
-  if(!alreadyKnown){
+  // Only touch the `sheets` row itself when this sheet doesn't already
+  // have a CONFIRMED row in the database — checking the local `sheets`
+  // array alone isn't enough, since a brand-new sheet is added there
+  // optimistically the instant it's created, well before anything
+  // about it has actually reached Supabase. pendingEmptySheets exists
+  // specifically to track that gap (see its own declaration) — a real,
+  // live bug came from skipping this row on a sheet that was only
+  // known LOCALLY: the events insert right after it then failed a
+  // foreign-key check against a `sheets` row that didn't exist yet,
+  // silently (nothing visible showed the failure — see the alert added
+  // in handleCsvUpload for exactly that reason), and the import
+  // appeared to work until the next sync reverted it.
+  const stillPending = pendingEmptySheets.some(p => p.name === sheetName);
+  const confirmedInDb = sheets.some(s => s.name === sheetName) && !stillPending;
+  if(!confirmedInDb){
     const maxRows = await supabaseRequest('sheets?select=sort_order&order=sort_order.desc&limit=1');
     const nextOrder = (maxRows && maxRows.length ? maxRows[0].sort_order : -1) + 1;
     await supabaseRequest('sheets', {
@@ -3662,6 +3679,11 @@ async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
       headers: { 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify({ name: sheetName, mode: sheetMode, sort_order: nextOrder })
     });
+    // Now genuinely confirmed — this function no longer routes through
+    // rebuildSheetsFromCache (see the comment on the locally-constructed
+    // result below), which is what used to clear this flag, so it has
+    // to happen explicitly here instead.
+    pendingEmptySheets = pendingEmptySheets.filter(p => p.name !== sheetName);
   }
   await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}`, { method: 'DELETE' });
   if(payloadEvents.length){
@@ -3703,6 +3725,45 @@ async function supabaseReorderSheets(order){
   const byName = {};
   remoteSheetsList.forEach(s => { byName[s.name] = s; });
   return { events: remoteCache, sheets: order.filter(name => byName[name]).map(name => byName[name]) };
+}
+
+// ---------- Realtime sync ----------
+// The 20-second poll below (startSyncPolling) still runs as a safety
+// net — a websocket can silently drop on a flaky connection or a
+// backgrounded tab without any obvious error, so falling back to
+// "eventually consistent within 20 seconds" if realtime ever hiccups
+// is worth keeping rather than replacing outright. This is a SPEED
+// upgrade on top of that: any change to either table, from ANY tab or
+// device, arrives here within roughly a second, instead of waiting on
+// the next poll tick.
+//
+// Reacts to a change by just re-running the exact same pollRemote()
+// the periodic poll already uses — reusing its existing merge/render
+// logic (respecting an open notes panel, an in-flight push, etc.)
+// rather than hand-writing new incremental patch logic for every
+// possible insert/update/delete shape. A single save can touch many
+// rows at once (a whole sheet's worth of events), which would
+// otherwise fire this many times in a burst — debounced so a burst of
+// related changes triggers one refresh, not a dozen.
+let realtimeRefreshTimer = null;
+function scheduleRealtimeRefresh(){
+  clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = setTimeout(() => { pollRemote(); }, 400);
+}
+function startRealtimeSync(){
+  if(typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function'){
+    console.warn('[Ticket Library] Supabase realtime client did not load — falling back to periodic polling only.');
+    return;
+  }
+  try{
+    const rt = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    rt.channel('ticket-library-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, scheduleRealtimeRefresh)
+      .subscribe();
+  }catch(err){
+    console.warn('[Ticket Library] Realtime subscription failed to start — falling back to periodic polling only.', err);
+  }
 }
 
 // No visible status text anymore (the sync popover it used to live in
@@ -3976,13 +4037,13 @@ async function pushSheetEvents(sheetName, mode, payloadEvents){
 
 async function pushActiveSheetToRemote(){
   const name = activeSheetName;
-  if(!name) return;
+  if(!name) return false;
   const mode = activeSheetMode();
   const payloadEvents = allEvents.map(ev => {
     const ann = getAnnotation(eventKey(ev));
     return { ...ev, note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned, sections: ann.sections || [], isNew: !!ann.isNew, archived: !!ann.archived, noteHistory: ann.noteHistory || [], priceHistory: ann.priceHistory || [], extraLinks: ann.extraLinks || [] };
   });
-  await pushSheetEvents(name, mode, payloadEvents);
+  return await pushSheetEvents(name, mode, payloadEvents);
 }
 
 // Saves an edit made to a cross-sheet search result back to the sheet it
@@ -4745,7 +4806,7 @@ async function saveEventsToActiveSheet(events){
   allEvents = events;
   metaLine.textContent = `${events.length} events · live from Supabase`;
   render();
-  await pushActiveSheetToRemote();
+  return await pushActiveSheetToRemote();
 }
 
 // Every upload adds to whatever's on the active sheet — matching events
@@ -4804,7 +4865,18 @@ async function handleCsvUpload(file, text){
     const key = eventKey(ev);
     getAnnotation(key).isNew = !existingKeys.has(key);
   });
-  await saveEventsToActiveSheet(merged);
+  const saved = await saveEventsToActiveSheet(merged);
+  // A failed save here used to be entirely silent — no visible status
+  // text exists anywhere in this app anymore (see setSyncStatus's own
+  // comment), so a save that failed for ANY reason (a bad connection,
+  // a real bug) looked identical to one that succeeded until it quietly
+  // reverted on the next sync. For a deliberate, significant action
+  // like importing a whole CSV, that's worth a real, impossible-to-miss
+  // warning rather than staying consistent with how quieter routine
+  // edits (a single note, a star) are handled.
+  if(!saved){
+    alert('This import did NOT save — it may look like it worked right now, but it will disappear the next time this syncs. Check your connection and try uploading the CSV again.');
+  }
 }
 
 // Delete permissions, by sheet type: your own private sheet is fully
@@ -9067,6 +9139,7 @@ async function initApp(){
   }
   await loadAllFromRemote();
   if(syncUrl) startSyncPolling();
+  if(syncUrl) startRealtimeSync();
   // Signals the companion extension that the app has actually finished
   // its real work — restoring login AND fetching sheets/events from
   // Google Sheets — not just that the page's HTML finished loading.
