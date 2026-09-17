@@ -399,6 +399,9 @@
   .day-heading.collapsible-heading.collapsed .collapse-caret{transform:rotate(-90deg);}
   .day-heading.collapsible-heading.collapsed + .day-grid{display:none;}
   .day-heading.collapsible-heading.collapsed{opacity:.7;}
+  /* The heading currently "selected" for the number-key shortcuts —
+     see the keydown/click handlers further down. */
+  .day-heading.tl-shortcut-selected{outline:2px solid var(--teal, #4fc8bf);outline-offset:-2px;border-radius:6px;}
   /* Presale's "By presale time" view nests two heading levels — the
      hour ("10:00 AM presale") and, inside it, each artist. They used to
      share the exact same heading style, which made the hierarchy
@@ -3725,6 +3728,12 @@ async function loadAllFromRemote(){
   // just looking at, not just wherever tab order defaults to.
   const urlSheet = getSheetNameFromUrl();
   if(urlSheet && sheets.some(s => s.name === urlSheet)) activeSheetName = urlSheet;
+  // Same idea as the sheet/search restore above, for whichever tour
+  // heading was clicked to "select" it for the number-key shortcuts —
+  // carried in the link so a duplicated tab is immediately ready to use
+  // them without needing to click (or hover) anything first.
+  const urlGroup = getGroupKeyFromUrl();
+  if(urlGroup) tlSelectedGroupKey = urlGroup;
   {
     const sheet = activeSheet();
     sortMode = (sheet && sheet.sortMode) || defaultSortModeForMode(sheet ? sheet.mode : 'standard');
@@ -5033,6 +5042,56 @@ document.addEventListener('keydown', e => {
   if(e.key === 'ArrowLeft'){ e.preventDefault(); selectByDirection('left'); return; }
 });
 
+// ---------- Number key: open one specific date's Ticketmaster link
+// ----------
+// Two ways to pick WHICH tour/section's row of date cards the number
+// keys apply to:
+//  1. Just hover over it — works instantly, but only in this one tab,
+//     and only while the mouse is actually sitting there.
+//  2. Click the section's own heading bar (the "& Juliet (Touring)" row
+//     itself) to "select" it instead — this is saved right into the
+//     address bar (?group=...), so duplicating the tab (or sending the
+//     link to open in a second tab) carries the selection with it. That's
+//     the whole point: open a tour's page, click its heading once, then
+//     duplicate the tab as many times as needed and 1-9/0/-/= immediately
+//     opens that same tour's dates in each one — no re-hovering, no
+//     re-clicking, in every new tab.
+// Hovering always wins in-the-moment (it's a more specific, deliberate
+// signal than whatever was clicked earlier), falling back to the
+// clicked/URL-restored selection otherwise.
+const TL_OPEN_NTH_KEY_ORDER = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+let tlHoveredCardGrid = null;
+let tlSelectedGroupKey = null;
+document.addEventListener('mouseover', e => {
+  tlHoveredCardGrid = e.target.closest('.day-grid');
+});
+function tlFindGridForGroupKey(key){
+  if(!key) return null;
+  const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(key)}"]`);
+  return heading ? heading.nextElementSibling : null;
+}
+function tlMarkSelectedGroupInDom(){
+  document.querySelectorAll('.day-heading.tl-shortcut-selected').forEach(el => el.classList.remove('tl-shortcut-selected'));
+  if(!tlSelectedGroupKey) return;
+  const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(tlSelectedGroupKey)}"]`);
+  if(heading) heading.classList.add('tl-shortcut-selected');
+}
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return; // never hijack normal typing
+  const grid = tlHoveredCardGrid || tlFindGridForGroupKey(tlSelectedGroupKey);
+  if(!grid) return;
+  const idx = TL_OPEN_NTH_KEY_ORDER.indexOf(e.key);
+  if(idx === -1) return;
+  const cards = Array.from(grid.children).filter(el => el.classList.contains('ticket'));
+  const card = cards[idx];
+  if(!card) return;
+  const tmLink = card.querySelector('.link-btn.site-tm');
+  if(!tmLink || !tmLink.href) return;
+  e.preventDefault();
+  window.open(tmLink.href, '_blank', 'noopener');
+});
+
 let sheetNameManuallyEdited = false;
 const SHEET_TYPE_DEFAULT_NAMES = { standard: null, usopen: 'US Open', broadway: 'Broadway', presale: 'Presale' };
 
@@ -5482,6 +5541,11 @@ function groupByShowCount(events){
 
 function render(){
   syncUrlWithState();
+  // Deferred one tick so the DOM has actually been rebuilt below before
+  // this looks for the heading to highlight — render() reassigns the
+  // list's innerHTML synchronously further down, and this needs to run
+  // after that, not before it.
+  requestAnimationFrame(tlMarkSelectedGroupInDom);
   if(historyViewActive){
     updateModeUI();
     renderHistoryView();
@@ -8140,6 +8204,16 @@ listRoot.addEventListener('click', async e => {
       return;
     }
     const key = heading.dataset.section;
+    // Clicking a heading also "selects" it for the number-key shortcuts
+    // above, on top of the existing collapse toggle — the underlying
+    // date cards stay in the page (just hidden via CSS) even once
+    // collapsed, so the shortcuts keep working either way; this just
+    // gives a highlighted heading as the visible confirmation of which
+    // tour is currently selected.
+    tlSelectedGroupKey = key;
+    document.querySelectorAll('.day-heading.tl-shortcut-selected').forEach(el => el.classList.remove('tl-shortcut-selected'));
+    heading.classList.add('tl-shortcut-selected');
+    syncUrlWithState();
     if(collapsedSections.has(key)) collapsedSections.delete(key);
     else collapsedSections.add(key);
     heading.classList.toggle('collapsed');
@@ -8786,18 +8860,25 @@ function getSearchQueryFromUrl(){
 function getSheetNameFromUrl(){
   try{ return new URLSearchParams(location.search).get('sheet') || ''; }catch(e){ return ''; }
 }
+function getGroupKeyFromUrl(){
+  try{ return new URLSearchParams(location.search).get('group') || ''; }catch(e){ return ''; }
+}
 // Called from render() every time anything state-relevant changes —
 // history.replaceState is cheap and doesn't add browser-history entries,
 // so this can run on every render without it becoming a "back button"
 // nuisance. While searching, the URL reflects the search itself; when
 // not, it reflects the active sheet — so whichever one you'd actually
 // want restored on a fresh open is the one that's actually there.
+// "group" (a clicked-on tour heading, selected for the number-key
+// shortcuts) rides along independently of that — it's about which
+// section the shortcuts apply to, unrelated to search vs. sheet.
 function syncUrlWithState(){
   try{
     const params = new URLSearchParams();
     const query = searchInput.value.trim();
     if(query) params.set('q', query);
     else if(activeSheetName) params.set('sheet', activeSheetName);
+    if(tlSelectedGroupKey) params.set('group', tlSelectedGroupKey);
     const search = params.toString();
     const newUrl = location.pathname + (search ? ('?' + search) : '') + location.hash;
     const curUrl = location.pathname + location.search + location.hash;
