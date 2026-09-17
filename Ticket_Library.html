@@ -3534,18 +3534,176 @@ document.addEventListener('click', e => {
 // web pages), so a background poll picks up anything edited directly in
 // the spreadsheet every ~20s, and immediately on regaining focus.
 // See Code.gs for the Apps Script backend.
-let syncUrl = null;
+let syncUrl = null; // truthy once Supabase is configured below — same role it always had, just no longer literally used as a fetch target itself
 let syncTimer = null;
 const SYNC_POLL_MS = 20000;
 
-// Baked in so the page works with zero setup — there's no visible sync
-// button anymore to manually connect/disconnect from, the app just
-// always talks to this sheet.
-//
-// Points at this file's OWN separate Google Sheet/Apps Script
-// deployment — not the same one the main (login) app uses — so this
-// stays a genuinely personal/private data set.
-const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbziqMvboSdD-D2xj8QdkuMMyxR_SLuCdloy7h8_HlnP00R_uByD5wRNn_ggt6QjCiauzg/exec';
+// ---------- Supabase backend ----------
+// Swapped in to replace the Google Sheets/Apps Script backend — Apps
+// Script's cold-start + spreadsheet-read latency was the actual source
+// of "loading too slow," not anything in the app itself. Every
+// pull/push function below (loadAllFromRemote, pollRemote,
+// pushSheetEvents, pushSheetRename, pushSheetDelete, pushSheetOrder)
+// still expects back the exact same {events, sheets} shape it always
+// has — these functions just fulfill that contract against Supabase's
+// REST API instead, so nothing else in the app needed to change.
+const SUPABASE_URL = 'https://ajvjrndadwecntfcqjgb.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_65bPMoZ6rnQ4a2eXkp5ryg_oRcLri6K';
+const SUPABASE_HEADERS = {
+  'apikey': SUPABASE_KEY,
+  'Authorization': `Bearer ${SUPABASE_KEY}`,
+  'Content-Type': 'application/json'
+};
+
+// Every Supabase call goes through here — centralizes the one thing
+// plain fetch() doesn't do on its own: actually throwing when a
+// response comes back non-2xx (a bad API key, a table that doesn't
+// exist, an RLS policy blocking the request) instead of silently
+// "succeeding" with an error body that looks like real data.
+async function supabaseRequest(path, options = {}){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: { ...SUPABASE_HEADERS, ...(options.headers || {}) }
+  });
+  if(!res.ok){
+    const text = await res.text().catch(() => '');
+    throw new Error(`Supabase request failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if(res.status === 204) return null;
+  return res.json();
+}
+
+// snake_case Supabase columns <-> the camelCase event shape the rest
+// of the app has always worked with.
+function supabaseRowToEvent(r){
+  return {
+    appSheet: r.app_sheet,
+    sheetMode: r.sheet_mode,
+    name: r.name || '',
+    venue: r.venue || '',
+    dateStr: r.date_str || '',
+    primarySite: r.primary_site || '',
+    primaryLink: r.primary_link || '',
+    vividLink: r.vivid_link || '',
+    stubLink: r.stub_link || '',
+    note: r.note || '',
+    rating: r.rating || 0,
+    pinned: !!r.pinned,
+    sections: r.sections || [],
+    isNew: !!r.is_new,
+    updatedAt: r.updated_at || '',
+    archived: !!r.archived,
+    noteHistory: r.note_history || [],
+    presaleDateStr: r.presale_date_str || '',
+    code: r.code || '',
+    publicSaleDateStr: r.public_sale_date_str || '',
+    priceHistory: r.price_history || [],
+    extraLinks: r.extra_links || [],
+    deletedAt: r.deleted_at || '',
+    deletedFromSheet: r.deleted_from_sheet || ''
+  };
+}
+function eventToSupabaseRow(ev, sheetName, sheetMode){
+  return {
+    app_sheet: sheetName,
+    sheet_mode: sheetMode,
+    name: ev.name || '',
+    venue: ev.venue || '',
+    date_str: ev.dateStr || '',
+    primary_site: ev.primarySite || '',
+    primary_link: ev.primaryLink || '',
+    vivid_link: ev.vividLink || '',
+    stub_link: ev.stubLink || '',
+    note: ev.note || '',
+    rating: ev.rating || 0,
+    pinned: !!ev.pinned,
+    sections: ev.sections || [],
+    is_new: !!ev.isNew,
+    archived: !!ev.archived,
+    note_history: ev.noteHistory || [],
+    presale_date_str: ev.presaleDateStr || '',
+    code: ev.code || '',
+    public_sale_date_str: ev.publicSaleDateStr || '',
+    price_history: ev.priceHistory || [],
+    extra_links: ev.extraLinks || [],
+    deleted_at: ev.deletedAt || '',
+    deleted_from_sheet: ev.deletedFromSheet || ''
+  };
+}
+
+// The only real full reads — used for the initial load and the
+// periodic background poll. Every other operation below already knows
+// exactly what it just wrote, so it builds the {events, sheets} result
+// locally instead of re-fetching, which is what actually cuts down the
+// round-trips on every single note/price/star edit.
+async function supabaseFetchAll(){
+  const [sheetsRows, eventsRows] = await Promise.all([
+    supabaseRequest('sheets?select=*&order=sort_order.asc'),
+    supabaseRequest('events?select=*')
+  ]);
+  return {
+    sheets: sheetsRows.map(s => ({ name: s.name, mode: s.mode })),
+    events: eventsRows.map(supabaseRowToEvent)
+  };
+}
+
+async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
+  // Only touch the `sheets` row itself when this sheet is genuinely
+  // new — this same function runs on every ordinary note/price/star
+  // edit too (each one "replaces" that sheet's rows), where the sheet
+  // obviously already exists, so skipping this saves a round trip on
+  // every one of those instead of just the rare "brand new tab" case.
+  const alreadyKnown = sheets.some(s => s.name === sheetName);
+  if(!alreadyKnown){
+    const maxRows = await supabaseRequest('sheets?select=sort_order&order=sort_order.desc&limit=1');
+    const nextOrder = (maxRows && maxRows.length ? maxRows[0].sort_order : -1) + 1;
+    await supabaseRequest('sheets', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({ name: sheetName, mode: sheetMode, sort_order: nextOrder })
+    });
+  }
+  await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}`, { method: 'DELETE' });
+  if(payloadEvents.length){
+    await supabaseRequest('events', {
+      method: 'POST',
+      body: JSON.stringify(payloadEvents.map(ev => eventToSupabaseRow(ev, sheetName, sheetMode)))
+    });
+  }
+  const events = remoteCache.filter(e => e.appSheet !== sheetName)
+    .concat(payloadEvents.map(ev => ({ ...ev, appSheet: sheetName, sheetMode })));
+  const sheetsList = remoteSheetsList.some(s => s.name === sheetName)
+    ? remoteSheetsList
+    : remoteSheetsList.concat([{ name: sheetName, mode: sheetMode }]);
+  return { events, sheets: sheetsList };
+}
+
+async function supabaseDeleteSheet(name){
+  await supabaseRequest(`sheets?name=eq.${encodeURIComponent(name)}`, { method: 'DELETE' }); // cascades to that sheet's events
+  return {
+    events: remoteCache.filter(e => e.appSheet !== name),
+    sheets: remoteSheetsList.filter(s => s.name !== name)
+  };
+}
+
+async function supabaseRenameSheet(oldName, newName){
+  await supabaseRequest(`sheets?name=eq.${encodeURIComponent(oldName)}`, {
+    method: 'PATCH', body: JSON.stringify({ name: newName })
+  }); // ON UPDATE CASCADE carries every one of that sheet's events over to the new name automatically
+  return {
+    events: remoteCache.map(e => e.appSheet === oldName ? { ...e, appSheet: newName } : e),
+    sheets: remoteSheetsList.map(s => s.name === oldName ? { ...s, name: newName } : s)
+  };
+}
+
+async function supabaseReorderSheets(order){
+  await Promise.all(order.map((name, idx) =>
+    supabaseRequest(`sheets?name=eq.${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify({ sort_order: idx }) })
+  ));
+  const byName = {};
+  remoteSheetsList.forEach(s => { byName[s.name] = s; });
+  return { events: remoteCache, sheets: order.filter(name => byName[name]).map(name => byName[name]) };
+}
 
 // No visible status text anymore (the sync popover it used to live in
 // is gone), but this is still called from everywhere a sync
@@ -3681,7 +3839,7 @@ function syncActiveSheetFromCache(){
   const built = buildEventsAndAnnotations(rows);
   allEvents = built.events;
   annotations = built.annotationsMap;
-  metaLine.textContent = allEvents.length ? `${allEvents.length} events · live from Google Sheets` : '';
+  metaLine.textContent = allEvents.length ? `${allEvents.length} events · live from Supabase` : '';
 }
 
 // Full initial load: fetch everything, rebuild the sheet list, show the
@@ -3700,10 +3858,9 @@ async function loadAllFromRemote(){
   setSyncStatus('Loading…');
   let data;
   try{
-    const res = await fetch(syncUrl, { method: 'GET' });
-    data = await res.json();
+    data = await supabaseFetchAll();
   }catch(err){
-    setSyncStatus('Could not reach the Google Sheet — check the URL and connection.', 'error');
+    setSyncStatus('Could not reach Supabase — check the connection.', 'error');
     sheets = [{ name: 'Sheet 1', mode: 'standard' }];
     activeSheetName = 'Sheet 1';
     sortMode = defaultSortModeForMode('standard'); sortSelect.value = sortMode;
@@ -3769,8 +3926,7 @@ async function pollRemote(){
   if(!syncUrl || pendingPushCount > 0) return;
   let data;
   try{
-    const res = await fetch(syncUrl, { method: 'GET' });
-    data = await res.json();
+    data = await supabaseFetchAll();
   }catch(err){
     setSyncStatus('Sync check failed — will retry.', 'error');
     return;
@@ -3805,12 +3961,7 @@ async function pushSheetEvents(sheetName, mode, payloadEvents){
   }
   pendingPushCount++;
   try{
-    const res = await fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids a CORS preflight Apps Script can't answer
-      body: JSON.stringify({ action: 'replaceSheet', appSheet: sheetName, sheetMode: mode, events: payloadEvents })
-    });
-    const data = await res.json();
+    const data = await supabaseReplaceSheet(sheetName, mode, payloadEvents);
     if(data && Array.isArray(data.events)) remoteCache = data.events;
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
     setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
@@ -3857,12 +4008,7 @@ async function pushSheetRename(oldName, newName){
   if(!syncUrl) return;
   pendingPushCount++;
   try{
-    const res = await fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'renameSheet', oldName, newName })
-    });
-    const data = await res.json();
+    const data = await supabaseRenameSheet(oldName, newName);
     if(data && Array.isArray(data.events)) remoteCache = data.events;
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
   }catch(e){ setSyncStatus('Rename may not have saved — check your connection.', 'error'); }
@@ -3873,12 +4019,7 @@ async function pushSheetDelete(name){
   if(!syncUrl) return;
   pendingPushCount++;
   try{
-    const res = await fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'deleteSheet', appSheet: name })
-    });
-    const data = await res.json();
+    const data = await supabaseDeleteSheet(name);
     if(data && Array.isArray(data.events)) remoteCache = data.events;
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
   }catch(e){ setSyncStatus('Delete may not have saved — check your connection.', 'error'); }
@@ -3891,12 +4032,7 @@ async function pushSheetOrder(){
   if(!syncUrl) return;
   pendingPushCount++;
   try{
-    const res = await fetch(syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'reorderSheets', order: sheets.map(s => s.name) })
-    });
-    const data = await res.json();
+    const data = await supabaseReorderSheets(sheets.map(s => s.name));
     if(data && Array.isArray(data.events)) remoteCache = data.events;
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
   }catch(e){ setSyncStatus('Reorder may not have saved — check your connection.', 'error'); }
@@ -4607,7 +4743,7 @@ async function deleteHistoricalPriceHistoryEntry(key, index){
 
 async function saveEventsToActiveSheet(events){
   allEvents = events;
-  metaLine.textContent = `${events.length} events · live from Google Sheets`;
+  metaLine.textContent = `${events.length} events · live from Supabase`;
   render();
   await pushActiveSheetToRemote();
 }
@@ -8926,8 +9062,8 @@ async function initApp(){
   // restore and no "does this account still exist" check to run —
   // both were only ever about a real per-device login state.
   updateAdminModeUI();
-  if(DEFAULT_SYNC_URL){
-    syncUrl = DEFAULT_SYNC_URL;
+  if(SUPABASE_URL){
+    syncUrl = SUPABASE_URL; // still just a truthy flag now — the Supabase functions use SUPABASE_URL/SUPABASE_KEY directly
   }
   await loadAllFromRemote();
   if(syncUrl) startSyncPolling();
