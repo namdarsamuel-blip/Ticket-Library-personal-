@@ -1736,6 +1736,11 @@
     .select-check{width:26px;height:26px;}
     .insights-modal{max-width:520px;}
   }
+  /* No-login variant: nothing to log INTO or OUT OF, but Archived and
+     History are still real, useful views — the button stays, just
+     relabeled away from an identity (see updateAdminModeUI below), and
+     only the Log out item inside the menu is hidden. */
+  #accountMenuLogout{display:none !important;}
 </style>
 </head>
 <body>
@@ -1782,7 +1787,7 @@
       <button class="btn ghost" id="releaseAllPresaleBtn" style="display:none;" title="Move every show on this sheet onto a regular sheet at once — codes, notes, and prices all come with them">↗ Release all shows</button>
     </div>
     <div class="account-menu-wrap login-btn-pinned">
-      <button class="btn ghost account-menu-trigger" id="adminModeBtn" title="Log in — pick your name and enter your passcode, or create a new account. Everyday edits (notes, star, pin, codes, prices) never require logging in; it's only for your own private sheets and a few admin-only actions.">👤 Log in</button>
+      <button class="btn ghost account-menu-trigger" id="adminModeBtn" title="Archived and History">☰</button>
       <div class="account-menu" id="accountMenu" style="display:none;">
         <button type="button" class="account-menu-item" id="accountMenuArchived">📦 Archived</button>
         <button type="button" class="account-menu-item" id="accountMenuHistory">📜 History</button>
@@ -2045,11 +2050,9 @@ const accountMenu = $('#accountMenu');
 const accountMenuArchived = $('#accountMenuArchived');
 const accountMenuLogout = $('#accountMenuLogout');
 function updateAdminModeUI(){
-  // No "— log out" in the button text anymore — clicking it while
-  // logged in opens the menu below rather than logging out directly, so
-  // the label shouldn't promise an action a single click no longer does.
-  adminModeBtn.textContent = currentUser ? `👤 ${currentUser}` : '👤 Log in';
-  adminModeBtn.classList.toggle('active', !!currentUser);
+  // No-login variant: no identity to show in the button — it's just
+  // the way into Archived/History now, not a login/account indicator.
+  adminModeBtn.textContent = '☰';
   archivePastBtn.style.display = adminModeOn ? 'block' : 'none';
   updateDeleteAllArchivedBtnVisibility();
   // Trash's tab only shows while admin mode is on — if it gets locked
@@ -2081,10 +2084,11 @@ function updateAdminModeUI(){
 // through the login/add-account flows.
 function sheetVisibleToCurrentUser(sheet){
   if(sheet.mode === 'trash' || sheet.mode === 'history' || sheet.mode === 'accounts' || sheet.mode === 'tournotes') return false;
-  if(sheet.mode === 'usopen') return true;
-  const privateMatch = sheet.name.match(/^(.+) — (.+)$/);
-  if(privateMatch) return currentUser === privateMatch[2];
-  return currentUserIsAdmin();
+  // No-login variant: one shared identity, so there's no "someone
+  // else's private sheet" concept left to hide — anyone with the link
+  // sees everything real (Trash/History/Accounts/tournotes above still
+  // never appear as tabs, same as the full version).
+  return true;
 }
 adminModeBtn.addEventListener('click', async () => {
   if(currentUser){
@@ -2137,12 +2141,8 @@ adminModeBtn.addEventListener('click', async () => {
 });
 accountMenuLogout.addEventListener('click', () => {
   accountMenu.style.display = 'none';
-  currentUser = null;
-  adminModeOn = false;
-  localStorage.removeItem('ticketWatchLoggedInAs');
-  updateAdminModeUI();
-  renderTabs();
-  render();
+  // No-op in this no-login version — everyone stays signed in as the
+  // one shared identity; there's no logged-out state to return to.
 });
 accountMenuArchived.addEventListener('click', () => {
   accountMenu.style.display = 'none';
@@ -2712,50 +2712,17 @@ function updateDeleteAllArchivedBtnVisibility(){
   deleteAllArchivedBtn.style.display = (archiveOnly && hasArchived && canDeleteFromSheet(activeSheet())) ? 'block' : 'none';
 }
 
-// ---------- Delete-sheet passcode re-check ----------
+// ---------- Delete-sheet confirmation ----------
 // Deleting a whole sheet is the single most destructive action in this
 // app — unlike every per-event delete, it doesn't go to History first;
-// the sheet and everything on it is just gone. Re-entering your own
-// passcode here is a deliberate speed bump against a stray click doing
-// that by accident, checked against the actual currently-logged-in
-// account's own passcode (never a fixed value baked into the code) so
-// it stays meaningful as accounts get added or changed.
-let deletePasscodeResolve = null;
-// Masked the same way the login passcode field is (see maskInputAsDots
-// and its comment further down) — plain type="text" with the real
-// value tracked separately in JS, not type="password", so this can't
-// end up triggering Chrome's own password-manager save prompt the way
-// the old login field once did.
-const deletePasscodeMask = maskInputAsDots(deletePasscodeInput);
+// the sheet and everything on it is just gone. The full version re-
+// checks a passcode here as a speed bump against a stray click; there's
+// no per-account passcode left to check in this no-login version, so a
+// plain confirm() is the speed bump instead — still something between
+// one click and permanent deletion, just not tied to an account.
 function requestDeletePasscode(message){
-  return new Promise(resolve => {
-    deletePasscodeResolve = resolve;
-    deletePasscodeMask.reset();
-    deletePasscodeError.style.display = 'none';
-    deletePasscodeLabel.textContent = message || 'Enter your passcode to delete';
-    deletePasscodeModal.style.display = 'flex';
-    deletePasscodeInput.focus();
-  });
+  return Promise.resolve(confirm((message || 'Delete this sheet?') + '\n\nThis cannot be undone.'));
 }
-function closeDeletePasscodeModal(result){
-  deletePasscodeModal.style.display = 'none';
-  if(deletePasscodeResolve){ deletePasscodeResolve(result); deletePasscodeResolve = null; }
-}
-function submitDeletePasscode(){
-  const person = PEOPLE.find(p => p.name === currentUser);
-  if(person && deletePasscodeMask.getValue() === person.passcode){
-    closeDeletePasscodeModal(true);
-  } else {
-    deletePasscodeError.style.display = 'block';
-    deletePasscodeMask.reset();
-    deletePasscodeInput.focus();
-  }
-}
-confirmDeletePasscodeBtn.addEventListener('click', submitDeletePasscode);
-cancelDeletePasscodeBtn.addEventListener('click', () => closeDeletePasscodeModal(false));
-deletePasscodeModal.addEventListener('click', e => { if(e.target === deletePasscodeModal) closeDeletePasscodeModal(false); });
-deletePasscodeInput.addEventListener('keydown', e => { if(e.key === 'Enter') submitDeletePasscode(); });
-
 let currentInsightsAnchorKey = null;
 function openInsightsModal(key){
   const insights = buildArtistInsights(key);
@@ -2873,10 +2840,16 @@ let openNotesKey = null; // eventKey of the one card whose notes panel is expand
 // US Open, an ownerless sheet) check against, via currentUserIsAdmin()
 // — never a specific name.
 let PEOPLE = [];
-let currentUser = null; // one of PEOPLE's names, or null if nobody's logged in
+// This is the no-login variant: there's exactly one shared identity for
+// anyone who opens the link, always signed in, never logged out. No
+// PEOPLE/passcode system to manage — every "logged in?" and "is this
+// person allowed to..." check throughout the app still works unchanged,
+// since they all key off currentUser/adminModeOn/currentUserIsAdmin(),
+// which are now simply always truthy instead of reflecting a real login
+// state.
+let currentUser = 'Sam';
 function currentUserIsAdmin(){
-  const person = PEOPLE.find(p => p.name === currentUser);
-  return !!(person && person.isAdmin);
+  return true;
 }
 const ACCOUNTS_SHEET_NAME = '🔑 Accounts';
 // A note on the whole tour/artist heading, not any one show — kept on
@@ -3137,7 +3110,7 @@ async function saveNewAccount(name, passcode, isAdmin){
   loadPeopleFromRemote();
   return true;
 }
-let adminModeOn = false;
+let adminModeOn = true; // always on in this no-login variant — see currentUser above
 let noteSnapshotOnOpen = null; // ann.note captured when the panel opened, so closing can tell if it actually changed
 let historyExpandedKeys = new Set(); // keys whose note-history list is currently expanded
 let archiveOnly = false; // filter: show only archived events instead of hiding them
@@ -3565,7 +3538,23 @@ const SYNC_POLL_MS = 20000;
 // Baked in so the page works with zero setup — there's no visible sync
 // button anymore to manually connect/disconnect from, the app just
 // always talks to this sheet.
-const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxjs98Uj7o2LzyQoWlKqdgEOJrxeE0PAm4_8U3vUII4aWraBmkkYgCjDMMKXoywwAt9/exec';
+//
+// ⚠️ PLACEHOLDER — this file is meant to point at its OWN separate
+// Google Sheet, not the same one the main app uses, so this stays a
+// genuinely personal/private data set. To set that up:
+//   1. Open the Google Sheet the main app uses, and make a copy of it
+//      (File → Make a copy) — this carries over its attached Apps
+//      Script (the actual backend code) too, so there's nothing to
+//      rewrite.
+//   2. In that COPY, open Extensions → Apps Script, then Deploy →
+//      New deployment → Web app, and deploy it (same settings as the
+//      original: execute as you, access "Anyone").
+//   3. Copy the new Web App URL it gives you and paste it in below,
+//      replacing this placeholder.
+// Until that's done, this file will show a "could not reach the
+// sheet" message instead of loading — it's not broken, it's just not
+// pointed at anything real yet.
+const DEFAULT_SYNC_URL = 'PASTE_YOUR_NEW_GOOGLE_SHEET_WEB_APP_URL_HERE';
 
 // No visible status text anymore (the sync popover it used to live in
 // is gone), but this is still called from everywhere a sync
@@ -3742,6 +3731,12 @@ async function loadAllFromRemote(){
   rebuildSheetsFromCache();
   await migrateTrashIntoHistory();
   activeSheetName = pickDefaultSheetName();
+  // A shared link naming a specific sheet (?sheet=...) wins over
+  // whichever tab happens to sit leftmost — that's what lets opening
+  // the same link in a second tab land on the same sheet someone was
+  // just looking at, not just wherever tab order defaults to.
+  const urlSheet = getSheetNameFromUrl();
+  if(urlSheet && sheets.some(s => s.name === urlSheet)) activeSheetName = urlSheet;
   {
     const sheet = activeSheet();
     sortMode = (sheet && sheet.sortMode) || defaultSortModeForMode(sheet ? sheet.mode : 'standard');
@@ -5498,6 +5493,7 @@ function groupByShowCount(events){
 }
 
 function render(){
+  syncUrlWithState();
   if(historyViewActive){
     updateModeUI();
     renderHistoryView();
@@ -8789,7 +8785,52 @@ window.addEventListener('beforeunload', () => { saveNotesNow(); });
 let searchInputUserEditedAt = 0;
 searchInput.addEventListener('keydown', () => { searchInputUserEditedAt = Date.now(); });
 searchInput.addEventListener('paste', () => { searchInputUserEditedAt = Date.now(); });
+
+// ---------- Shareable-link state (no-login variant only) ----------
+// With no accounts to keep separate tabs signed into their own view,
+// the URL itself carries "which sheet, which search" instead — copy
+// the address bar and open it in a new tab (or send it to someone
+// else) and it lands in exactly the same place, which is the whole
+// point of not needing to log in per device/tab anymore.
+function getSearchQueryFromUrl(){
+  try{ return new URLSearchParams(location.search).get('q') || ''; }catch(e){ return ''; }
+}
+function getSheetNameFromUrl(){
+  try{ return new URLSearchParams(location.search).get('sheet') || ''; }catch(e){ return ''; }
+}
+// Called from render() every time anything state-relevant changes —
+// history.replaceState is cheap and doesn't add browser-history entries,
+// so this can run on every render without it becoming a "back button"
+// nuisance. While searching, the URL reflects the search itself; when
+// not, it reflects the active sheet — so whichever one you'd actually
+// want restored on a fresh open is the one that's actually there.
+function syncUrlWithState(){
+  try{
+    const params = new URLSearchParams();
+    const query = searchInput.value.trim();
+    if(query) params.set('q', query);
+    else if(activeSheetName) params.set('sheet', activeSheetName);
+    const search = params.toString();
+    const newUrl = location.pathname + (search ? ('?' + search) : '') + location.hash;
+    const curUrl = location.pathname + location.search + location.hash;
+    if(newUrl !== curUrl) history.replaceState(null, '', newUrl);
+  }catch(e){ /* URL API trouble shouldn't take the whole app down over it */ }
+}
+
 function clearStaleSearchValue(){
+  // A search explicitly carried in the link (?q=...) is the whole
+  // reason this no-login variant supports opening multiple tabs at
+  // different places — it always wins over the "clear stale browser-
+  // restored text" cleanup below, and re-asserts itself if anything
+  // (browser form restore, this same cleanup) tries to touch the box.
+  const urlQuery = getSearchQueryFromUrl();
+  if(urlQuery){
+    if(searchInput.value !== urlQuery){
+      searchInput.value = urlQuery;
+      searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+    }
+    return;
+  }
   if(!searchInput.value) return;
   if(Date.now() - searchInputUserEditedAt < 1500) return; // don't clobber a real, just-typed search
   searchInput.value = '';
@@ -8811,38 +8852,15 @@ async function initApp(){
   // runs, so a single clear here isn't enough on its own; the extra
   // catch points registered below are what actually make it reliable.
   clearStaleSearchValue();
-  // Restores whoever was logged in last time on this device — saved by
-  // the login handler above, cleared by explicit log-out. Set before
-  // the first render so the UI (and every visibility check that depends
-  // on currentUser) is correct from the very first paint, not just
-  // after loadAllFromRemote finishes.
-  const savedUser = localStorage.getItem('ticketWatchLoggedInAs');
-  if(savedUser){
-    currentUser = savedUser;
-    adminModeOn = true;
-  }
+  // No-login variant: currentUser/adminModeOn are fixed constants (see
+  // their declarations near the top), so there's no saved-login to
+  // restore and no "does this account still exist" check to run —
+  // both were only ever about a real per-device login state.
   updateAdminModeUI();
   if(DEFAULT_SYNC_URL){
     syncUrl = DEFAULT_SYNC_URL;
   }
   await loadAllFromRemote();
-  // A device can be left claiming to be logged in as someone who
-  // doesn't actually exist in the real account list — the exact ghost-
-  // session state the "account creation silently failed but currentUser
-  // got set anyway" bug (now fixed above, in createAccountFlow) used to
-  // leave behind, and the kind of thing that could still happen if an
-  // account is ever removed from the Accounts sheet directly. Only
-  // checked when PEOPLE genuinely loaded something real (not empty) —
-  // an empty list here just as easily means the fetch itself failed
-  // (no internet, Google Sheets briefly unreachable), and logging
-  // someone out over a connectivity blip instead of an actual missing
-  // account would be a worse bug than the one this is fixing.
-  if(currentUser && PEOPLE.length && !PEOPLE.some(p => p.name === currentUser)){
-    currentUser = null;
-    adminModeOn = false;
-    localStorage.removeItem('ticketWatchLoggedInAs');
-    updateAdminModeUI();
-  }
   if(syncUrl) startSyncPolling();
   // Signals the companion extension that the app has actually finished
   // its real work — restoring login AND fetching sheets/events from
