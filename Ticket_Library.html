@@ -3578,8 +3578,22 @@ async function supabaseRequest(path, options = {}){
     const text = await res.text().catch(() => '');
     throw new Error(`Supabase request failed (${res.status}): ${text.slice(0, 200)}`);
   }
-  if(res.status === 204) return null;
-  return res.json();
+  // A real, live failure showed PostgREST returning a genuinely EMPTY
+  // body on a successful write with a 2xx status that ISN'T 204 (its
+  // default for some operations, without an explicit
+  // Prefer:return=representation asking for the row back) — calling
+  // res.json() on that throws its own confusing "Unexpected end of
+  // JSON input" error, which has nothing to do with the actual
+  // request having failed. Reading as text first and only parsing when
+  // there's actually something there sidesteps needing to know exactly
+  // which status code means "empty" for which operation.
+  const text = await res.text();
+  if(!text) return null;
+  try{
+    return JSON.parse(text);
+  }catch(e){
+    throw new Error(`Supabase returned unparseable JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 // snake_case Supabase columns <-> the camelCase event shape the rest
@@ -3902,9 +3916,17 @@ function syncActiveSheetFromCache(){
   metaLine.textContent = allEvents.length ? `${allEvents.length} events · live from Supabase` : '';
 }
 
-// Full initial load: fetch everything, rebuild the sheet list, show the
-// first one. Falls back to one empty local-only sheet if there's no
-// connection, since there's nothing else to show.
+// Progressive initial load: the sheets LIST is small and fast
+// regardless of how much event data exists, so fetching it alone
+// first is enough to know which sheet is about to open. Only THAT one
+// sheet's events get fetched next — a small, targeted query — so the
+// sheet actually being looked at (especially via a duplicated tab
+// landing on ?sheet=...) renders almost instantly instead of waiting
+// on every sheet's full event history first. Everything else still
+// loads right behind it, in the background, for switching sheets and
+// cross-sheet search — see loadRemainingEventsInBackground below.
+// Falls back to one empty local-only sheet if there's no connection,
+// since there's nothing else to show.
 async function loadAllFromRemote(){
   if(!syncUrl){
     sheets = [{ name: 'Sheet 1', mode: 'standard' }];
@@ -3916,9 +3938,9 @@ async function loadAllFromRemote(){
     return;
   }
   setSyncStatus('Loading…');
-  let data;
+  let sheetsRows;
   try{
-    data = await supabaseFetchAll();
+    sheetsRows = await supabaseRequest('sheets?select=*&order=sort_order.asc');
   }catch(err){
     setSyncStatus('Could not reach Supabase — check the connection.', 'error');
     sheets = [{ name: 'Sheet 1', mode: 'standard' }];
@@ -3928,16 +3950,10 @@ async function loadAllFromRemote(){
     renderTabs(); updateModeUI(); render();
     return;
   }
-  if(!data || !Array.isArray(data.events)){
-    setSyncStatus('Unexpected response from the sheet.', 'error');
-    return;
-  }
-  remoteCache = data.events;
-  remoteSheetsList = Array.isArray(data.sheets) ? data.sheets : [];
+  remoteSheetsList = Array.isArray(sheetsRows) ? sheetsRows.map(s => ({ name: s.name, mode: s.mode })) : [];
   loadPeopleFromRemote();
   loadTourNotesFromRemote();
   rebuildSheetsFromCache();
-  await migrateTrashIntoHistory();
   activeSheetName = pickDefaultSheetName();
   // A shared link naming a specific sheet (?sheet=...) wins over
   // whichever tab happens to sit leftmost — that's what lets opening
@@ -3951,6 +3967,15 @@ async function loadAllFromRemote(){
   // them without needing to click (or hover) anything first.
   const urlGroup = getGroupKeyFromUrl();
   if(urlGroup) tlSelectedGroupKey = urlGroup;
+
+  try{
+    const firstRows = activeSheetName
+      ? await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(activeSheetName)}&select=*`)
+      : [];
+    remoteCache = firstRows.map(supabaseRowToEvent);
+  }catch(err){
+    remoteCache = []; // the background fetch below fills this in if it succeeds
+  }
   {
     const sheet = activeSheet();
     sortMode = (sheet && sheet.sortMode) || defaultSortModeForMode(sheet ? sheet.mode : 'standard');
@@ -3965,7 +3990,31 @@ async function loadAllFromRemote(){
   }
   render();
   setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
+  loadRemainingEventsInBackground();
 }
+
+// The rest of the sheets' events, fetched right after the visible one
+// already rendered — doesn't block anything on screen. Also where the
+// legacy Trash-sheet migration runs now (it genuinely needs every
+// sheet's data, not just the one that just loaded), which is why it
+// moved out of the fast path above.
+async function loadRemainingEventsInBackground(){
+  let rows;
+  try{
+    rows = await supabaseRequest('events?select=*');
+  }catch(err){
+    return; // the visible sheet is unaffected — the next poll/realtime tick retries this anyway
+  }
+  remoteCache = rows.map(supabaseRowToEvent);
+  await migrateTrashIntoHistory();
+  rebuildSheetsFromCache();
+  if(!sheets.some(s => s.name === activeSheetName)) activeSheetName = pickDefaultSheetName();
+  syncActiveSheetFromCache();
+  renderTabs();
+  updateModeUI();
+  render();
+}
+
 
 // Tracks how many pushes are currently in flight. A background poll that
 // lands WHILE a push is still writing the Sheet (uploads especially can
