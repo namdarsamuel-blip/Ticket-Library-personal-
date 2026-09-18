@@ -5336,11 +5336,25 @@ function tlFindGridForGroupKey(key){
   const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(key)}"]`);
   return heading ? heading.nextElementSibling : null;
 }
+// The heading's OWN highlight already updated on every render regardless
+// (see below) — this scroll only fires ONCE per page load, specifically
+// for a selection restored from a shared link (?group=...), which is
+// the one case where the person hasn't actually seen this section yet.
+// A click-driven selection never needs this (you're already looking at
+// whatever you just clicked), and without the once-only guard this
+// would otherwise yank the scroll position around on every single
+// re-render afterward — typing in search, toggling a filter, anything.
+let tlScrolledToSelectedGroup = false;
 function tlMarkSelectedGroupInDom(){
   document.querySelectorAll('.day-heading.tl-shortcut-selected').forEach(el => el.classList.remove('tl-shortcut-selected'));
   if(!tlSelectedGroupKey) return;
   const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(tlSelectedGroupKey)}"]`);
-  if(heading) heading.classList.add('tl-shortcut-selected');
+  if(!heading) return;
+  heading.classList.add('tl-shortcut-selected');
+  if(!tlScrolledToSelectedGroup){
+    tlScrolledToSelectedGroup = true;
+    heading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
