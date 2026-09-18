@@ -395,6 +395,34 @@
   }
   .day-heading.collapsible-heading{cursor:pointer;user-select:none;gap:6px;}
   .day-heading.collapsible-heading:hover .heading-label{opacity:.8;}
+  /* The name itself has its own, more specific cursor/hover treatment —
+     clicking it copies the name rather than toggling shortcut mode like
+     the rest of the bar does, so it's worth reading as its own small
+     target rather than blending into the bar around it. */
+  .heading-label{cursor:copy;border-radius:4px;padding:1px 4px;margin:-1px -4px;transition:background .15s ease, color .15s ease;}
+  /* Heading-row icon buttons (pin, collapse, note, history) sized up
+     from the compact per-card buttons elsewhere — this row has real
+     room to spare, and "bigger, rounder, easier to click and see" was
+     a direct, specific ask. */
+  .heading-icons .icon-btn{width:28px;height:28px;border-radius:9px;}
+  /* The big "Copy Link" pill that appears once a group is selected —
+     an actual labeled button rather than another small icon, since
+     it's meant to be the obvious, unmissable thing to reach for right
+     after turning shortcut mode on. */
+  .heading-copy-link-btn{
+    display:inline-flex;align-items:center;gap:5px;
+    background:var(--teal);color:#0d1a19;border:none;border-radius:999px;
+    padding:5px 12px;font-size:11.5px;font-weight:700;
+    font-family:system-ui, -apple-system, sans-serif;
+    cursor:pointer;white-space:nowrap;flex:0 0 auto;
+    transition:transform .1s ease, filter .15s ease;
+  }
+  .heading-copy-link-btn:hover{filter:brightness(1.08);}
+  .heading-copy-link-btn:active{transform:scale(.96);}
+  .heading-copy-link-btn.copied .icon-copy{display:none;}
+  .heading-copy-link-btn.copied .icon-check{display:block;}
+  .heading-label:hover{background:var(--card-hover);}
+  .heading-label.copied-flash{background:var(--teal);color:#0d1a19;}
   .collapse-caret{flex:0 0 auto;opacity:.55;transition:transform .15s ease;}
   .day-heading.collapsible-heading.collapsed .collapse-caret{transform:rotate(-90deg);}
   .day-heading.collapsible-heading.collapsed + .day-grid{display:none;}
@@ -1517,9 +1545,53 @@
 
   /* ---------- Empty state ---------- */
   .empty{
+    display:none; /* JS shows this explicitly once it's actually confirmed the
+       active sheet has no events — leaving this visible by default meant it
+       flashed on screen on every single page load/refresh, real content or
+       not, since the browser paints the raw HTML before any JS has run. */
     max-width:520px;margin:80px auto;text-align:center;
     padding:0 24px;
   }
+  /* Shown only for the brief moment between the page painting and the
+     first real fetch resolving — gets fully overwritten the instant
+     render() runs for real, so this never lingers alongside actual
+     content. Exists so a refresh reads as "this is loading" rather than
+     either a blank flash of nothing or (worse, before the fix right
+     above this) a flash of "this sheet is empty, go upload something." */
+  .loading-placeholder{
+    max-width:520px;margin:80px auto;text-align:center;
+    color:var(--muted);font-size:14.5px;
+  }
+  /* Small floating "last key pressed" reminder + 3 quick copy/paste
+     slots — tucked in a corner deliberately small enough to never
+     compete with the actual content for attention. */
+  .tl-scratchpad{
+    position:fixed; bottom:14px; right:14px; z-index:500;
+    background:var(--card); border:1px solid var(--hairline); border-radius:10px;
+    padding:8px; width:190px;
+    box-shadow:0 2px 10px rgba(0,0,0,.35);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .tl-scratchpad-lastkey{
+    font-size:11px; color:var(--muted); text-align:center;
+    padding:4px 6px; border-radius:6px; background:var(--bg);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .tl-scratchpad-slot{display:flex; align-items:center; gap:4px;}
+  .tl-scratchpad-input{
+    flex:1; min-width:0; background:var(--bg); border:1px solid var(--hairline);
+    border-radius:6px; color:var(--text); font-size:11.5px; padding:4px 6px;
+  }
+  .tl-scratchpad-input:focus{border-color:var(--teal); outline:none;}
+  .tl-scratchpad-copy-btn{
+    flex:0 0 auto; width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid var(--hairline); border-radius:6px; color:var(--muted);
+    cursor:pointer; padding:0;
+  }
+  .tl-scratchpad-copy-btn:hover{background:var(--card-hover); color:var(--text);}
+  .tl-scratchpad-copy-btn.copied{color:#0d1a19; background:var(--teal); border-color:var(--teal);}
+  .tl-scratchpad-copy-btn.copied .icon-copy{display:none;}
+  .tl-scratchpad-copy-btn.copied .icon-check{display:block;}
   .empty .ticket-icon{font-size:40px;margin-bottom:14px;}
   .empty h2{
     font-family:'Bebas Neue',sans-serif;font-size:30px;
@@ -1787,8 +1859,8 @@
         <option value="upload">As uploaded</option>
         <option value="date" id="sortDateOption">By date</option>
         <option value="venue">By venue</option>
-        <option value="name" selected>By name</option>
-        <option value="shows">By tour size</option>
+        <option value="name">By name</option>
+        <option value="shows" selected>By tour size</option>
       </select>
       <button class="filter-btn" id="expandCollapseBtn" type="button" title="Toggle every section open or closed">⌃ Collapse</button>
       <div class="col-stepper" id="colStepper" title="Columns">
@@ -1835,9 +1907,40 @@
       <p id="emptyBody">Upload a CSV to fill this sheet. Uploading again adds new events on top and refreshes matching ones — nothing gets duplicated, and your notes stay put. Use + above to start a separate sheet.</p>
       <div class="drop-zone" id="dropZone">Drag a CSV here, or use the menu above to upload</div>
     </div>
-    <div id="listRoot"></div>
+    <div id="listRoot">
+      <div class="loading-placeholder" id="loadingPlaceholder">Loading…</div>
+    </div>
   </div>
 </main>
+
+<!-- Small floating reminder of the last shortcut key pressed, plus 3
+     quick copy/paste slots — see the JS block further down for what
+     each piece does. Deliberately tiny and tucked in a corner so it's
+     there when wanted without getting in the way otherwise. -->
+<div class="tl-scratchpad" id="tlScratchpad">
+  <div class="tl-scratchpad-lastkey" id="tlLastKeyDisplay">Last: —</div>
+  <div class="tl-scratchpad-slot">
+    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot0" placeholder="Slot 1 — paste/type here" autocomplete="off">
+    <button type="button" class="tl-scratchpad-copy-btn" data-slot="0" title="Copy this slot">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>
+  </div>
+  <div class="tl-scratchpad-slot">
+    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot1" placeholder="Slot 2 — paste/type here" autocomplete="off">
+    <button type="button" class="tl-scratchpad-copy-btn" data-slot="1" title="Copy this slot">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>
+  </div>
+  <div class="tl-scratchpad-slot">
+    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot2" placeholder="Slot 3 — paste/type here" autocomplete="off">
+    <button type="button" class="tl-scratchpad-copy-btn" data-slot="2" title="Copy this slot">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>
+  </div>
+</div>
 
 <div class="modal-overlay" id="addSheetModal" style="display:none;">
   <div class="modal-box">
@@ -3980,9 +4083,25 @@ async function loadAllFromRemote(){
     return;
   }
   setSyncStatus('Loading…');
-  let sheetsRows;
+  // If the link already names a specific sheet (?sheet=...), there's no
+  // need to wait for the sheets list before starting that sheet's
+  // events fetch too — both can fire at once instead of one after the
+  // other. On a connection where each request already carries some
+  // baseline latency (a real, noticeable factor on Supabase's free
+  // tier especially, which can take a moment to respond to the first
+  // request after a quiet stretch), firing them together roughly halves
+  // that wait instead of paying for it twice in a row.
+  const urlSheetHint = getSheetNameFromUrl();
+  let sheetsRows, parallelFirstRows = null;
   try{
-    sheetsRows = await supabaseRequest('sheets?select=*&order=sort_order.asc');
+    if(urlSheetHint){
+      [sheetsRows, parallelFirstRows] = await Promise.all([
+        supabaseRequest('sheets?select=*&order=sort_order.asc'),
+        supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(urlSheetHint)}&select=*`)
+      ]);
+    } else {
+      sheetsRows = await supabaseRequest('sheets?select=*&order=sort_order.asc');
+    }
   }catch(err){
     setSyncStatus('Could not reach Supabase — check the connection.', 'error');
     sheets = [{ name: 'Sheet 1', mode: 'standard' }];
@@ -4001,8 +4120,7 @@ async function loadAllFromRemote(){
   // whichever tab happens to sit leftmost — that's what lets opening
   // the same link in a second tab land on the same sheet someone was
   // just looking at, not just wherever tab order defaults to.
-  const urlSheet = getSheetNameFromUrl();
-  if(urlSheet && sheets.some(s => s.name === urlSheet)) activeSheetName = urlSheet;
+  if(urlSheetHint && sheets.some(s => s.name === urlSheetHint)) activeSheetName = urlSheetHint;
   // Same idea as the sheet/search restore above, for whichever tour
   // heading was clicked to "select" it for the number-key shortcuts —
   // carried in the link so a duplicated tab is immediately ready to use
@@ -4011,9 +4129,12 @@ async function loadAllFromRemote(){
   if(urlGroup) tlSelectedGroupKey = urlGroup;
 
   try{
-    const firstRows = activeSheetName
-      ? await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(activeSheetName)}&select=*`)
-      : [];
+    // The parallel fetch above already covers this exact case — only
+    // fire a fresh one if that didn't happen (no ?sheet= hint at all)
+    // or it turned out not to actually match a real sheet.
+    const firstRows = (urlSheetHint && activeSheetName === urlSheetHint && parallelFirstRows)
+      ? parallelFirstRows
+      : (activeSheetName ? await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(activeSheetName)}&select=*`) : []);
     remoteCache = firstRows.map(supabaseRowToEvent);
   }catch(err){
     remoteCache = []; // the background fetch below fills this in if it succeeds
@@ -4046,6 +4167,19 @@ async function loadRemainingEventsInBackground(){
     rows = await supabaseRequest('events?select=*');
   }catch(err){
     return; // the visible sheet is unaffected — the next poll/realtime tick retries this anyway
+  }
+  // A real, live bug: this ran right after the fast-path load had
+  // already successfully shown real data, and an occasional empty-but-
+  // technically-successful response from here silently wiped it back
+  // out to nothing a few seconds later — exactly what "it was there,
+  // then it disappeared" looked like from the outside. Far more likely
+  // a transient hiccup than every event on the sheet having genuinely
+  // vanished in the same instant this happened to run, so this refuses
+  // to act on it and just lets the next poll/realtime tick confirm
+  // (or not) instead.
+  if(remoteCache.length > 0 && rows.length === 0){
+    console.warn('[Ticket Library] background fetch returned 0 events when', remoteCache.length, 'were already loaded — treating as a transient hiccup, not overwriting.');
+    return;
   }
   remoteCache = rows.map(supabaseRowToEvent);
   await migrateTrashIntoHistory();
@@ -4084,6 +4218,23 @@ async function pollRemote(){
   }
   if(!data || !Array.isArray(data.events)) return;
   if(pendingPushCount > 0) return; // a push started while this fetch was in flight
+  // A poll coming back with drastically less data than already loaded
+  // is far more likely a transient hiccup (a brief connection issue,
+  // an occasional empty-but-technically-successful response from the
+  // free tier) than a legitimate "everything really did just get
+  // deleted" — a real, live bug showed exactly this: a sheet full of
+  // real data, uploaded and confirmed working, silently wiped out by a
+  // poll that happened to come back empty. Refusing to act on an
+  // implausible full wipe doesn't block a genuine one from ever taking
+  // effect — it just waits for the NEXT poll (or the realtime event
+  // the actual change would itself trigger) to confirm it first,
+  // rather than trusting a single response that contradicts everything
+  // already on screen.
+  if(remoteCache.length > 0 && data.events.length === 0){
+    console.warn('[Ticket Library] poll returned 0 events when', remoteCache.length, 'were expected — treating as a transient hiccup, not overwriting.');
+    setSyncStatus('Sync check looked wrong — will retry.', 'error');
+    return;
+  }
   remoteCache = data.events;
   remoteSheetsList = Array.isArray(data.sheets) ? data.sheets : [];
 
@@ -4630,11 +4781,25 @@ function recordsFromCSV(text){
 
 // Identifies "the same event" for note-keeping purposes, stable across
 // re-uploads as long as the ticket link or name/venue/date stay the same.
+//
+// The presale code is folded in here too, when there is one — a real
+// presale tracker CSV can legitimately list the exact same Ticketmaster
+// event more than once under different codes (a members-only window, a
+// specific bank's card presale, a later public one — this exact pattern
+// showed up for real: the same Atlanta Braves game listed twice, once
+// under an "INSIDER2026" code and once under "public"). Keying purely
+// off the link collapsed those into one during import, silently
+// discarding whichever code happened to be uploaded first — a real,
+// confirmed data-loss bug, not a hypothetical one. Events without a
+// code (the overwhelming majority of the app's regular, non-presale
+// use) are completely unaffected — this only adds a distinguishing
+// suffix when a code specifically exists.
 function eventKey(ev){
+  const codeSuffix = ev.code && ev.code.trim() ? '|code:' + ev.code.trim().toLowerCase() : '';
   if(ev.primaryLink && ev.primaryLink.trim()){
-    return 'pl:' + ev.primaryLink.trim().toLowerCase();
+    return 'pl:' + ev.primaryLink.trim().toLowerCase() + codeSuffix;
   }
-  return 'nv:' + [ev.name, ev.venue, ev.dateStr].join('|').trim().toLowerCase();
+  return 'nv:' + [ev.name, ev.venue, ev.dateStr].join('|').trim().toLowerCase() + codeSuffix;
 }
 
 // Searches artist/event name, venue, all three ticket links, the primary
@@ -5399,24 +5564,29 @@ document.addEventListener('keydown', e => {
   if(e.key === 'ArrowLeft'){ e.preventDefault(); selectByDirection('left'); return; }
 });
 
-// ---------- Number key: open one specific date's Ticketmaster link
-// ----------
-// Two ways to pick WHICH tour/section's row of date cards the number
-// keys apply to:
-//  1. Just hover over it — works instantly, but only in this one tab,
-//     and only while the mouse is actually sitting there.
-//  2. Click the section's own dedicated target-icon button to "select"
-//     it instead — this is saved right into the address bar
-//     (?group=...), so duplicating the tab (or sending the link to
-//     open in a second tab) carries the selection with it. That's the
-//     whole point: select a tour once, duplicate the tab as many times
-//     as needed, and the shortcuts immediately open that same tour's
-//     dates in each one — no re-hovering, no re-clicking, in every new
-//     tab. Collapsing/expanding the section is a fully separate action
-//     (just the heading's own click) — selecting it never touches that.
-// Hovering always wins in-the-moment (it's a more specific, deliberate
-// signal than whatever was clicked earlier), falling back to the
-// clicked/URL-restored selection otherwise.
+// ---------- Number key: open one specific date's ticket link ----------
+// Click anywhere on a tour's own heading bar to toggle it in/out of
+// "shortcut mode" — this is saved right into the address bar
+// (?group=...), so duplicating the tab (or sending the link to open in
+// a second tab) carries the selection with it. That's the whole point:
+// toggle a tour on once, duplicate the tab as many times as needed, and
+// the shortcuts immediately target that same tour's dates in each one —
+// no re-clicking in every new tab. Collapsing/expanding and copying the
+// tour's name are both fully separate actions now (their own controls
+// on the heading) — toggling shortcut mode never touches either.
+//
+// An explicit selection, once toggled on, is the SOLE authority for
+// which group the keys apply to — it used to lose to whatever the
+// mouse happened to be resting over at the moment, which produced
+// exactly the "doesn't always open what I expect" unpredictability
+// that's worse than not having a hover shortcut at all. Hover still
+// works as a quick, no-setup fallback, but ONLY when nothing has been
+// explicitly toggled on — it can never silently override a real
+// selection anymore.
+//
+// Plain key = Ticketmaster. Held Alt + the same key = VividSeats for
+// that identical card instead — same position, same badge, just the
+// other platform.
 //
 // Covers up to 38 cards per group — the number row first (1234567890-=,
 // left to right same as the physical keys), then continuing down the
@@ -5446,12 +5616,12 @@ function tlFindGridForGroupKey(key){
 // that genuinely need a pass over the live DOM after a render instead:
 // the one-time scroll for a selection restored from a shared link
 // (?group=...), and the small key-badge on each card in that group
-// showing exactly which key opens it. Both only apply to the CLICK/
-// URL-selected group, not a transient hover — badges constantly
-// appearing and disappearing as the mouse merely passes over different
-// sections would be more distracting than useful, and the selected
-// group is the one that's actually "in that mode" in any lasting sense
-// (it's the one that survives into a duplicated tab).
+// showing exactly which key opens it. Both only apply to the explicitly
+// selected group, not a transient hover — badges constantly appearing
+// and disappearing as the mouse merely passes over different sections
+// would be more distracting than useful, and the selected group is the
+// one that's actually "in that mode" in any lasting sense (it's the one
+// that survives into a duplicated tab).
 let tlScrolledToSelectedGroup = false;
 function tlMarkSelectedGroupInDom(){
   document.querySelectorAll('.tl-shortcut-badge').forEach(el => el.remove());
@@ -5471,35 +5641,87 @@ function tlMarkSelectedGroupInDom(){
     const badge = document.createElement('div');
     badge.className = 'tl-shortcut-badge';
     badge.textContent = keyLabel;
-    badge.title = `Press "${keyLabel}" to open this date's Ticketmaster link`;
+    badge.title = `Press "${keyLabel}" for Ticketmaster — hold Alt for VividSeats instead`;
     card.appendChild(badge);
   });
 }
+// Small, non-blocking reminder of the last key actually pressed (see
+// the floating scratchpad panel) — for exactly the moment you've
+// already alt-tabbed away to a new tab and can't remember which number
+// you just hit in the last one.
+function tlUpdateLastKeyIndicator(text){
+  const el = document.getElementById('tlLastKeyDisplay');
+  if(el) el.textContent = text;
+}
+// Three small copy/paste slots living in the same floating widget —
+// restored from (and saved to) localStorage so they survive a refresh.
+// Deliberately per-browser/local-only, never synced to Supabase: this
+// is a personal scratch space, not part of the show data itself.
+(function(){
+  const SLOT_COUNT = 3;
+  const STORAGE_PREFIX = 'tlScratchpadSlot_';
+  for(let i = 0; i < SLOT_COUNT; i++){
+    const input = document.getElementById(`tlScratchSlot${i}`);
+    if(!input) continue;
+    try{ input.value = localStorage.getItem(STORAGE_PREFIX + i) || ''; }catch(e){ /* private browsing or similar — slots just won't persist this session */ }
+    input.addEventListener('input', () => {
+      try{ localStorage.setItem(STORAGE_PREFIX + i, input.value); }catch(e){}
+    });
+  }
+  document.querySelectorAll('.tl-scratchpad-copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const input = document.getElementById(`tlScratchSlot${btn.dataset.slot}`);
+      if(!input || !input.value) return;
+      const ok = await copyToClipboard(input.value);
+      if(!ok) return;
+      btn.classList.add('copied');
+      clearTimeout(btn._copyTimeout);
+      btn._copyTimeout = setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+  });
+})();
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return; // never hijack normal typing
   // Letter keys now being in play (for a group past 12 cards) raises
-  // the stakes of an accidental trigger — a stray keypress while some
-  // OTHER dialog is open (Add Show, a prompt, anything) could otherwise
+  // the stakes of an accidental trigger — a stray keypress while a
+  // real dialog is open (Add Show, a prompt, anything) could otherwise
   // fire this instead of whatever that dialog's own shortcut was meant
-  // to do. When nothing on the page has deliberately been given focus,
-  // the browser leaves it on <body> — the moment a modal opens (or any
-  // element is deliberately focused), it isn't <body> anymore, which
-  // makes this a reasonably reliable, generic "is something else
-  // active right now" check without needing to know every dialog in
-  // this app by name.
-  if(document.activeElement && document.activeElement !== document.body) return;
-  const grid = tlHoveredCardGrid || tlFindGridForGroupKey(tlSelectedGroupKey);
+  // to do. A focused <button> OUTSIDE any modal, though, is routinely
+  // just harmless leftover focus from clicking pin/collapse/copy/
+  // anything a moment earlier — a real, live problem showed this
+  // blocking the very next shortcut press after clicking almost any
+  // button on the page, which is a much more common (and much worse)
+  // situation than a genuine dialog having a focused button in it. Only
+  // an actually-typing context (input/textarea/contenteditable, already
+  // excluded above) or a button specifically WITHIN an open modal
+  // reliably means "leave this alone."
+  if(document.activeElement && document.activeElement !== document.body){
+    const isSafeButton = document.activeElement.tagName === 'BUTTON' && !document.activeElement.closest('.modal-overlay');
+    if(!isSafeButton) return;
+  }
+  // If a group is explicitly selected, it's the ONLY thing that's ever
+  // allowed to answer this — falling back to hover when a selection
+  // exists but doesn't resolve (e.g. it's pointing at a group from a
+  // sheet that's no longer active) used to silently substitute whatever
+  // the mouse happened to be resting over instead, which is exactly how
+  // this ended up opening "the wrong link from somewhere else": the
+  // person believed a specific tour was selected, and got a completely
+  // unrelated card's link instead with no indication why. Hover is only
+  // ever consulted when there's truly no selection to begin with.
+  const grid = tlSelectedGroupKey ? tlFindGridForGroupKey(tlSelectedGroupKey) : tlHoveredCardGrid;
   if(!grid) return;
   const idx = TL_OPEN_NTH_KEY_ORDER.indexOf(e.key.toLowerCase());
   if(idx === -1) return;
   const cards = Array.from(grid.children).filter(el => el.classList.contains('ticket'));
   const card = cards[idx];
   if(!card) return;
-  const tmLink = card.querySelector('.link-btn.site-tm');
-  if(!tmLink || !tmLink.href) return;
+  const useVivid = e.altKey;
+  const linkEl = card.querySelector(useVivid ? '.link-btn.site-vivid' : '.link-btn.site-tm');
+  if(!linkEl || !linkEl.href) return;
   e.preventDefault();
-  window.open(tmLink.href, '_blank', 'noopener');
+  window.open(linkEl.href, '_blank', 'noopener');
+  tlUpdateLastKeyIndicator(`${useVivid ? 'Alt+' : ''}${TL_OPEN_NTH_KEY_ORDER[idx].toUpperCase()} → ${useVivid ? 'VividSeats' : 'Ticketmaster'}`);
 });
 
 let sheetNameManuallyEdited = false;
@@ -5584,6 +5806,14 @@ function setActiveSheet(name){
   sortSelect.value = sortMode;
   openNotesKey = null;
   noteSnapshotOnOpen = null;
+  // A group selected for the number-key shortcuts almost certainly
+  // doesn't exist on a DIFFERENT sheet — leaving it set meant the
+  // shortcuts would silently find nothing here and fall through to
+  // whatever the mouse happened to be hovering instead, which read as
+  // "the shortcuts are broken/random" rather than "you switched sheets
+  // and need to reselect." Clearing it makes that state visible
+  // (nothing highlighted) instead of quietly wrong.
+  tlSelectedGroupKey = null;
   newOnly = false;
   newFilterBtn.classList.remove('active');
   archiveOnly = false;
@@ -8327,21 +8557,36 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
   const historyBtn = `<button type="button" class="icon-btn heading-history-btn" data-action="view-history-for-heading" data-heading="${escapeHtml(label)}" title="View passed/deleted shows for this tour in History">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l4 2" stroke-dasharray="1.8 1.8"/></svg>
   </button>`;
-  // Selects this group for the number-key shortcuts (1234567890-=) —
-  // a SEPARATE action from the collapse toggle the rest of the heading
-  // still does, on purpose. Combining the two used to mean selecting a
-  // group also collapsed it, forcing an immediate re-expand just to see
-  // what you'd selected. Highlighted when this is the currently
-  // selected group, including right after loading a link that named it
-  // in ?group=... (see tlMarkSelectedGroupInDom).
+  // Whether this group is currently "in shortcut mode" — the number/
+  // Alt+number keys target it, and it's what carries into a shared or
+  // duplicated tab's link (?group=...). Highlighted with an outline the
+  // same way whether it got there by being clicked or restored from a
+  // link (see tlMarkSelectedGroupInDom).
   const isShortcutSelected = typeof tlSelectedGroupKey !== 'undefined' && tlSelectedGroupKey === key;
-  const shortcutSelectBtn = `<button type="button" class="icon-btn heading-shortcut-btn ${isShortcutSelected ? 'active' : ''}" data-action="select-shortcut-group" data-section="${escapeHtml(key)}" title="Select this group for the number-key shortcuts (1234567890-=) — carries into a shared or duplicated tab's link too">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+  // Big and obvious on purpose, unlike the small icon-sized buttons
+  // elsewhere in this bar — this is the one action you'd want to reach
+  // for repeatedly right after selecting a group (to re-copy the link
+  // for one more tab, send it again, etc.), so it gets to be an actual
+  // pill button with its own label instead of another small icon you
+  // have to recognize/remember. Only ever appears on whichever heading
+  // is currently selected — there's nothing to copy for the others.
+  const copyLinkBtn = isShortcutSelected ? `<button type="button" class="heading-copy-link-btn" data-action="copy-current-link" title="Copy this link again">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>Copy Link</span>
+  </button>` : '';
+  // Collapse/expand is its own dedicated button now, deliberately
+  // separated from both the bar itself (which toggles shortcut mode —
+  // see the click handler) and the heading's own name (which copies it —
+  // also see the click handler). All three used to be tangled into one
+  // "click the heading" action, which meant, for instance, that
+  // selecting a group for shortcuts also collapsed it every time.
+  const collapseBtn = `<button type="button" class="icon-btn heading-collapse-btn" data-action="collapse-heading" data-section="${escapeHtml(key)}" title="${collapsed ? 'Expand' : 'Collapse'} this section">
+    <svg class="collapse-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
   </button>`;
   return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''} ${isShortcutSelected ? 'tl-shortcut-selected' : ''}" data-section="${escapeHtml(key)}">
-    <svg class="collapse-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
-    <span class="heading-label">${escapeHtml(label)}</span>${extraHtml}
-    <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${shortcutSelectBtn}${pinBtn}</div>
+    <span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${extraHtml}${copyLinkBtn}
+    <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${pinBtn}${collapseBtn}</div>
   </div>${tourNotePreview}`;
 }
 
@@ -8444,7 +8689,7 @@ sortSelect.addEventListener('change', () => {
 // are the whole point of that sheet. US Open ignores this entirely (its
 // dropdown is hidden; it always groups by venue category).
 function defaultSortModeForMode(mode){
-  return mode === 'presale' ? 'date' : 'name';
+  return mode === 'presale' ? 'date' : 'shows';
 }
 
 // Copies a ticket link to the clipboard and briefly shows a checkmark on
@@ -8485,19 +8730,47 @@ listRoot.addEventListener('click', async e => {
     return;
   }
 
-  // Toggle a section open/closed. Pure DOM manipulation here (no full
-  // render) — the CSS adjacent-sibling rule does the actual hiding, so
-  // toggling is instant and doesn't disturb scroll position elsewhere.
   // Checked BEFORE the collapsible-heading toggle below, same reasoning
-  // as every other icon button living inside a heading — otherwise this
-  // click would ALSO trigger a collapse/expand, which used to be exactly
-  // how this worked (selecting a group collapsed it too) until that
-  // turned out to be annoying enough to split into its own button.
-  const shortcutSelectBtn = e.target.closest('[data-action="select-shortcut-group"]');
-  if(shortcutSelectBtn){
-    tlSelectedGroupKey = shortcutSelectBtn.dataset.section;
-    syncUrlWithState();
-    render();
+  // as every other icon button living inside a heading.
+  const copyHeadingNameEl = e.target.closest('[data-action="copy-heading-name"]');
+  if(copyHeadingNameEl){
+    copyToClipboard(copyHeadingNameEl.dataset.copyText).then(ok => {
+      if(!ok) return;
+      copyHeadingNameEl.classList.add('copied-flash');
+      clearTimeout(copyHeadingNameEl._copyTimeout);
+      copyHeadingNameEl._copyTimeout = setTimeout(() => copyHeadingNameEl.classList.remove('copied-flash'), 900);
+    });
+    return;
+  }
+
+  // The big "Copy Link" pill that appears once a group is selected —
+  // re-copies the CURRENT URL (not a fixed value baked in at render
+  // time), since the address bar could plausibly have changed since
+  // this button was drawn.
+  const copyCurrentLinkBtn = e.target.closest('[data-action="copy-current-link"]');
+  if(copyCurrentLinkBtn){
+    copyToClipboard(location.href).then(ok => {
+      if(!ok) return;
+      copyCurrentLinkBtn.classList.add('copied');
+      clearTimeout(copyCurrentLinkBtn._copyTimeout);
+      copyCurrentLinkBtn._copyTimeout = setTimeout(() => copyCurrentLinkBtn.classList.remove('copied'), 1400);
+    });
+    return;
+  }
+
+  // Checked BEFORE the collapsible-heading toggle below — this IS the
+  // collapse/expand action now, moved into its own dedicated button
+  // specifically so clicking the rest of the bar (below) can mean
+  // something else entirely instead of double-booking one click for
+  // both.
+  const collapseHeadingBtn = e.target.closest('[data-action="collapse-heading"]');
+  if(collapseHeadingBtn){
+    const key = collapseHeadingBtn.dataset.section;
+    const headingEl = collapseHeadingBtn.closest('.day-heading');
+    if(collapsedSections.has(key)) collapsedSections.delete(key);
+    else collapsedSections.add(key);
+    if(headingEl) headingEl.classList.toggle('collapsed');
+    updateExpandCollapseBtnLabel();
     return;
   }
 
@@ -8626,28 +8899,33 @@ listRoot.addEventListener('click', async e => {
   if(heading){
     // If a notes panel is currently open, this click's first job is
     // just closing it — same "background is locked" rule as every other
-    // click while notes is open. Collapsing the heading on this SAME
-    // click would hide the very card whose panel just closed, and the
-    // net effect felt like "clicking this closes notes AND makes my
-    // card disappear, so I have to re-expand and re-open it just to get
-    // back to where I was." A second, separate click on the heading
-    // (once notes is already closed) collapses it normally.
+    // click while notes is open.
     if(openNotesKey !== null){
       closeNotesPanel();
       render();
       return;
     }
+    // Clicking anywhere else on the bar (not the name, not the collapse
+    // button, not any of the other icons — all handled above already)
+    // toggles this group in or out of "shortcut mode": the number/
+    // Alt+number keys target whichever group is currently on, and it's
+    // what rides along into a shared or duplicated tab's link
+    // (?group=...). Toggling rather than only ever turning it on means
+    // clicking an already-selected bar again turns it back off, instead
+    // of needing to go select a DIFFERENT group just to get out of it.
     const key = heading.dataset.section;
-    // Just the collapse toggle — this used to ALSO select the heading
-    // for the number-key shortcuts on the same click, which meant
-    // selecting a group collapsed it too and you had to immediately
-    // re-expand it. That's now its own separate button (see
-    // select-shortcut-group above) specifically so the two don't fight
-    // each other.
-    if(collapsedSections.has(key)) collapsedSections.delete(key);
-    else collapsedSections.add(key);
-    heading.classList.toggle('collapsed');
-    updateExpandCollapseBtnLabel();
+    const turningOn = tlSelectedGroupKey !== key;
+    tlSelectedGroupKey = turningOn ? key : null;
+    syncUrlWithState();
+    // Copies the link the instant a group is selected — that's the URL
+    // someone actually wants in hand right after selecting a group
+    // (to paste into a new tab, send to another device, etc.), so
+    // there's no reason to make that a second, separate step. The big
+    // "Copy Link" button that appears in this same bar while a group is
+    // selected (see dayHeadingHtml) covers re-copying it again later,
+    // without needing to toggle off and back on.
+    if(turningOn) copyToClipboard(location.href);
+    render();
     return;
   }
 
