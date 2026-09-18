@@ -589,6 +589,20 @@
     container-type:inline-size;
   }
   .ticket:hover{border-color:#4a4950;box-shadow:0 4px 14px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.02) inset;}
+  /* The number/letter badge showing which keyboard shortcut opens this
+     specific card — only appears on cards belonging to the currently
+     selected group (see tlMarkSelectedGroupInDom), added directly as a
+     DOM node rather than through the normal render cycle. */
+  .tl-shortcut-badge{
+    position:absolute; top:8px; right:8px; z-index:3;
+    min-width:20px; height:20px; padding:0 5px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--teal, #4fc8bf); color:#0d1a19;
+    font-size:11px; font-weight:800; font-family:system-ui, -apple-system, sans-serif;
+    border-radius:5px; text-transform:uppercase;
+    box-shadow:0 1px 4px rgba(0,0,0,.35);
+    pointer-events:none;
+  }
   .ticket.shift-day{border-left-color:var(--day-color);background:var(--day-bg);}
   .ticket.shift-night{border-left-color:var(--night-color);background:var(--night-bg);}
   .ticket.is-pinned{border-color:var(--pin);border-left-color:var(--pin);}
@@ -3543,9 +3557,18 @@ document.addEventListener('click', e => {
 // web pages), so a background poll picks up anything edited directly in
 // the spreadsheet every ~20s, and immediately on regaining focus.
 // See Code.gs for the Apps Script backend.
+// 20 seconds made sense when this WAS the only way another tab/device's
+// changes ever showed up. Now that realtime (see startRealtimeSync)
+// delivers those within about a second, this is purely a safety net for
+// the rare case a websocket silently drops — worth keeping, not worth
+// running this often anymore. Every open tab was also polling
+// independently on its own 20s timer regardless of whether anything
+// had actually changed, which added up across several duplicated tabs
+// (exactly the workflow this app is built around) into real background
+// load for no benefit realtime doesn't already cover.
 let syncUrl = null; // truthy once Supabase is configured below — same role it always had, just no longer literally used as a fetch target itself
 let syncTimer = null;
-const SYNC_POLL_MS = 20000;
+const SYNC_POLL_MS = 90000;
 
 // ---------- Supabase backend ----------
 // Swapped in to replace the Google Sheets/Apps Script backend — Apps
@@ -3600,6 +3623,11 @@ async function supabaseRequest(path, options = {}){
 // of the app has always worked with.
 function supabaseRowToEvent(r){
   return {
+    // Never shown anywhere, never sent back on a full-sheet replace —
+    // purely an internal handle so a single-field edit (a note, a
+    // rating) can target exactly this one database row directly
+    // instead of needing to rewrite the whole sheet just to change it.
+    _sbId: r.id,
     appSheet: r.app_sheet,
     sheetMode: r.sheet_mode,
     name: r.name || '',
@@ -3668,6 +3696,20 @@ async function supabaseFetchAll(){
     sheets: sheetsRows.map(s => ({ name: s.name, mode: s.mode })),
     events: eventsRows.map(supabaseRowToEvent)
   };
+}
+
+// Updates exactly ONE event row directly, by its own database id —
+// used for the highest-frequency edit in the whole app (typing a note,
+// toggling a star, pinning a card) instead of the wholesale
+// delete-everything-then-reinsert-everything supabaseReplaceSheet still
+// does for genuine bulk operations (a CSV import, reordering). On a
+// sheet with hundreds of events, replacing the whole sheet just to
+// change one note field was real, measurable overkill once a real
+// database (capable of updating a single row directly) replaced Google
+// Sheets — this is the actual reason that switch was worth doing beyond
+// just raw speed per request.
+async function supabaseUpdateEventById(id, patch){
+  await supabaseRequest(`events?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
@@ -5169,13 +5211,62 @@ async function deleteAllArchivedEvents(){
 }
 
 let saveNotesTimer = null;
-function saveNotesSoon(){
+// A specific, unambiguous event key to target with a fast single-row
+// update instead of the full-sheet replace below — only ever set by the
+// ONE call site that can name its exact target with total confidence
+// (the notes textarea itself, via its own data-key). Every OTHER
+// trigger for this save (pin, rating, price history, bulk actions, ...)
+// still just calls saveNotesSoon() with no key, same as always, which
+// intentionally invalidates any pending targeted key and falls back to
+// the proven full-sheet push — safer to fall back on any ambiguity than
+// to guess at which single row actually changed.
+let pendingTargetedSaveKey = null;
+function saveNotesSoon(targetKey){
   clearTimeout(saveNotesTimer);
+  pendingTargetedSaveKey = targetKey || null;
   saveNotesTimer = setTimeout(saveNotesNow, 500);
 }
 async function saveNotesNow(){
   clearTimeout(saveNotesTimer);
-  await pushActiveSheetToRemote();
+  const targetKey = pendingTargetedSaveKey;
+  pendingTargetedSaveKey = null;
+  let handledViaTargetedUpdate = false;
+  if(targetKey){
+    // Only takes the fast path when this exact event is both on the
+    // active sheet (searchAnnotationsMap-only cross-sheet edits already
+    // go through dirtySheets/pushCrossSheetEventEdit below, untouched)
+    // and already has a real database id (a brand-new, not-yet-synced
+    // event doesn't yet, and correctly falls through to the full push,
+    // which is also what actually creates it).
+    const matched = remoteCache.find(e => eventKey(e) === targetKey && e._sbId);
+    if(matched){
+      const ann = getAnnotation(targetKey);
+      const patch = {
+        note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned,
+        sections: ann.sections || [], is_new: !!ann.isNew, archived: !!ann.archived,
+        note_history: ann.noteHistory || [], price_history: ann.priceHistory || [],
+        extra_links: ann.extraLinks || []
+      };
+      try{
+        await supabaseUpdateEventById(matched._sbId, patch);
+        Object.assign(matched, {
+          note: patch.note, rating: patch.rating, pinned: patch.pinned, sections: patch.sections,
+          isNew: patch.is_new, archived: patch.archived, noteHistory: patch.note_history,
+          priceHistory: patch.price_history, extraLinks: patch.extra_links
+        });
+        setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
+        lastPushError = null;
+        handledViaTargetedUpdate = true;
+      }catch(err){
+        console.error('[Ticket Library] targeted note save failed, falling back to a full sheet save:', err);
+        lastPushError = (err && err.message) ? err.message : String(err);
+        // Falls through to the full push below — same as any other save failure would.
+      }
+    }
+  }
+  if(!handledViaTargetedUpdate){
+    await pushActiveSheetToRemote();
+  }
   if(dirtySheets.size){
     const toPush = Array.from(dirtySheets);
     dirtySheets.clear();
@@ -5314,18 +5405,32 @@ document.addEventListener('keydown', e => {
 // keys apply to:
 //  1. Just hover over it — works instantly, but only in this one tab,
 //     and only while the mouse is actually sitting there.
-//  2. Click the section's own heading bar (the "& Juliet (Touring)" row
-//     itself) to "select" it instead — this is saved right into the
-//     address bar (?group=...), so duplicating the tab (or sending the
-//     link to open in a second tab) carries the selection with it. That's
-//     the whole point: open a tour's page, click its heading once, then
-//     duplicate the tab as many times as needed and 1-9/0/-/= immediately
-//     opens that same tour's dates in each one — no re-hovering, no
-//     re-clicking, in every new tab.
+//  2. Click the section's own dedicated target-icon button to "select"
+//     it instead — this is saved right into the address bar
+//     (?group=...), so duplicating the tab (or sending the link to
+//     open in a second tab) carries the selection with it. That's the
+//     whole point: select a tour once, duplicate the tab as many times
+//     as needed, and the shortcuts immediately open that same tour's
+//     dates in each one — no re-hovering, no re-clicking, in every new
+//     tab. Collapsing/expanding the section is a fully separate action
+//     (just the heading's own click) — selecting it never touches that.
 // Hovering always wins in-the-moment (it's a more specific, deliberate
 // signal than whatever was clicked earlier), falling back to the
 // clicked/URL-restored selection otherwise.
-const TL_OPEN_NTH_KEY_ORDER = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+//
+// Covers up to 38 cards per group — the number row first (1234567890-=,
+// left to right same as the physical keys), then continuing down the
+// next three keyboard rows (qwertyuiop, asdfghjkl, zxcvbnm) for any
+// group bigger than that. Ordered by physical row/position specifically
+// so it stays learnable/guessable rather than an arbitrary key list —
+// and matches the on-card badges below, which show exactly which key
+// opens which card either way.
+const TL_OPEN_NTH_KEY_ORDER = [
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
+  'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
+  'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
+  'z', 'x', 'c', 'v', 'b', 'n', 'm'
+];
 let tlHoveredCardGrid = null;
 let tlSelectedGroupKey = null;
 document.addEventListener('mouseover', e => {
@@ -5336,32 +5441,57 @@ function tlFindGridForGroupKey(key){
   const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(key)}"]`);
   return heading ? heading.nextElementSibling : null;
 }
-// The heading's OWN highlight already updated on every render regardless
-// (see below) — this scroll only fires ONCE per page load, specifically
-// for a selection restored from a shared link (?group=...), which is
-// the one case where the person hasn't actually seen this section yet.
-// A click-driven selection never needs this (you're already looking at
-// whatever you just clicked), and without the once-only guard this
-// would otherwise yank the scroll position around on every single
-// re-render afterward — typing in search, toggling a filter, anything.
+// The heading's own highlight is baked directly into dayHeadingHtml's
+// own output (via isShortcutSelected) — this handles the two things
+// that genuinely need a pass over the live DOM after a render instead:
+// the one-time scroll for a selection restored from a shared link
+// (?group=...), and the small key-badge on each card in that group
+// showing exactly which key opens it. Both only apply to the CLICK/
+// URL-selected group, not a transient hover — badges constantly
+// appearing and disappearing as the mouse merely passes over different
+// sections would be more distracting than useful, and the selected
+// group is the one that's actually "in that mode" in any lasting sense
+// (it's the one that survives into a duplicated tab).
 let tlScrolledToSelectedGroup = false;
 function tlMarkSelectedGroupInDom(){
-  document.querySelectorAll('.day-heading.tl-shortcut-selected').forEach(el => el.classList.remove('tl-shortcut-selected'));
+  document.querySelectorAll('.tl-shortcut-badge').forEach(el => el.remove());
   if(!tlSelectedGroupKey) return;
   const heading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(tlSelectedGroupKey)}"]`);
   if(!heading) return;
-  heading.classList.add('tl-shortcut-selected');
   if(!tlScrolledToSelectedGroup){
     tlScrolledToSelectedGroup = true;
     heading.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+  const grid = heading.nextElementSibling;
+  if(!grid) return;
+  const cards = Array.from(grid.children).filter(el => el.classList.contains('ticket'));
+  cards.forEach((card, idx) => {
+    const keyLabel = TL_OPEN_NTH_KEY_ORDER[idx];
+    if(!keyLabel) return; // past the 38 this covers — no badge, but every other card's still numbered correctly
+    const badge = document.createElement('div');
+    badge.className = 'tl-shortcut-badge';
+    badge.textContent = keyLabel;
+    badge.title = `Press "${keyLabel}" to open this date's Ticketmaster link`;
+    card.appendChild(badge);
+  });
 }
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return; // never hijack normal typing
+  // Letter keys now being in play (for a group past 12 cards) raises
+  // the stakes of an accidental trigger — a stray keypress while some
+  // OTHER dialog is open (Add Show, a prompt, anything) could otherwise
+  // fire this instead of whatever that dialog's own shortcut was meant
+  // to do. When nothing on the page has deliberately been given focus,
+  // the browser leaves it on <body> — the moment a modal opens (or any
+  // element is deliberately focused), it isn't <body> anymore, which
+  // makes this a reasonably reliable, generic "is something else
+  // active right now" check without needing to know every dialog in
+  // this app by name.
+  if(document.activeElement && document.activeElement !== document.body) return;
   const grid = tlHoveredCardGrid || tlFindGridForGroupKey(tlSelectedGroupKey);
   if(!grid) return;
-  const idx = TL_OPEN_NTH_KEY_ORDER.indexOf(e.key);
+  const idx = TL_OPEN_NTH_KEY_ORDER.indexOf(e.key.toLowerCase());
   if(idx === -1) return;
   const cards = Array.from(grid.children).filter(el => el.classList.contains('ticket'));
   const card = cards[idx];
@@ -8197,10 +8327,21 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
   const historyBtn = `<button type="button" class="icon-btn heading-history-btn" data-action="view-history-for-heading" data-heading="${escapeHtml(label)}" title="View passed/deleted shows for this tour in History">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l4 2" stroke-dasharray="1.8 1.8"/></svg>
   </button>`;
-  return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''}" data-section="${escapeHtml(key)}">
+  // Selects this group for the number-key shortcuts (1234567890-=) —
+  // a SEPARATE action from the collapse toggle the rest of the heading
+  // still does, on purpose. Combining the two used to mean selecting a
+  // group also collapsed it, forcing an immediate re-expand just to see
+  // what you'd selected. Highlighted when this is the currently
+  // selected group, including right after loading a link that named it
+  // in ?group=... (see tlMarkSelectedGroupInDom).
+  const isShortcutSelected = typeof tlSelectedGroupKey !== 'undefined' && tlSelectedGroupKey === key;
+  const shortcutSelectBtn = `<button type="button" class="icon-btn heading-shortcut-btn ${isShortcutSelected ? 'active' : ''}" data-action="select-shortcut-group" data-section="${escapeHtml(key)}" title="Select this group for the number-key shortcuts (1234567890-=) — carries into a shared or duplicated tab's link too">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+  </button>`;
+  return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''} ${isShortcutSelected ? 'tl-shortcut-selected' : ''}" data-section="${escapeHtml(key)}">
     <svg class="collapse-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
     <span class="heading-label">${escapeHtml(label)}</span>${extraHtml}
-    <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${pinBtn}</div>
+    <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${shortcutSelectBtn}${pinBtn}</div>
   </div>${tourNotePreview}`;
 }
 
@@ -8347,6 +8488,19 @@ listRoot.addEventListener('click', async e => {
   // Toggle a section open/closed. Pure DOM manipulation here (no full
   // render) — the CSS adjacent-sibling rule does the actual hiding, so
   // toggling is instant and doesn't disturb scroll position elsewhere.
+  // Checked BEFORE the collapsible-heading toggle below, same reasoning
+  // as every other icon button living inside a heading — otherwise this
+  // click would ALSO trigger a collapse/expand, which used to be exactly
+  // how this worked (selecting a group collapsed it too) until that
+  // turned out to be annoying enough to split into its own button.
+  const shortcutSelectBtn = e.target.closest('[data-action="select-shortcut-group"]');
+  if(shortcutSelectBtn){
+    tlSelectedGroupKey = shortcutSelectBtn.dataset.section;
+    syncUrlWithState();
+    render();
+    return;
+  }
+
   // Checked BEFORE the collapsible-heading toggle below, since the
   // group-pin button lives inside the heading and would otherwise also
   // trigger a collapse/expand on the same click.
@@ -8484,16 +8638,12 @@ listRoot.addEventListener('click', async e => {
       return;
     }
     const key = heading.dataset.section;
-    // Clicking a heading also "selects" it for the number-key shortcuts
-    // above, on top of the existing collapse toggle — the underlying
-    // date cards stay in the page (just hidden via CSS) even once
-    // collapsed, so the shortcuts keep working either way; this just
-    // gives a highlighted heading as the visible confirmation of which
-    // tour is currently selected.
-    tlSelectedGroupKey = key;
-    document.querySelectorAll('.day-heading.tl-shortcut-selected').forEach(el => el.classList.remove('tl-shortcut-selected'));
-    heading.classList.add('tl-shortcut-selected');
-    syncUrlWithState();
+    // Just the collapse toggle — this used to ALSO select the heading
+    // for the number-key shortcuts on the same click, which meant
+    // selecting a group collapsed it too and you had to immediately
+    // re-expand it. That's now its own separate button (see
+    // select-shortcut-group above) specifically so the two don't fight
+    // each other.
     if(collapsedSections.has(key)) collapsedSections.delete(key);
     else collapsedSections.add(key);
     heading.classList.toggle('collapsed');
@@ -8895,7 +9045,7 @@ listRoot.addEventListener('input', e => {
   if(textarea){
     const key = textarea.dataset.key;
     getAnnotation(key).note = textarea.value;
-    saveNotesSoon();
+    saveNotesSoon(key);
     return;
   }
 
