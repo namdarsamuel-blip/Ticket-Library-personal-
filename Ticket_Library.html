@@ -1566,7 +1566,7 @@
      slots — tucked in a corner deliberately small enough to never
      compete with the actual content for attention. */
   .tl-scratchpad{
-    position:fixed; bottom:14px; right:14px; z-index:500;
+    position:fixed; top:14px; left:14px; z-index:500;
     background:var(--card); border:1px solid var(--hairline); border-radius:10px;
     padding:8px; width:190px;
     box-shadow:0 2px 10px rgba(0,0,0,.35);
@@ -5683,6 +5683,14 @@ function tlUpdateLastKeyIndicator(text){
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return; // never hijack normal typing
+  // Ctrl (or Cmd, on Mac) held means the browser's OWN "jump to tab N"
+  // shortcut — a real, live bug had this app instead treating Ctrl+2
+  // exactly like a plain "2" and opening the Ticketmaster link, which
+  // both did the wrong thing AND ate the keypress the browser needed to
+  // switch tabs. This has to be checked before anything else below, not
+  // folded into the Alt check next to it — Ctrl doesn't mean "open a
+  // different platform," it means "this key isn't for this app at all."
+  if(e.ctrlKey || e.metaKey) return;
   // Letter keys now being in play (for a group past 12 cards) raises
   // the stakes of an accidental trigger — a stray keypress while a
   // real dialog is open (Add Show, a prompt, anything) could otherwise
