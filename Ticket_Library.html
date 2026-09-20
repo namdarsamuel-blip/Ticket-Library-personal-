@@ -3933,6 +3933,15 @@ function startRealtimeSync(){
     rt.channel('ticket-library-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, scheduleRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, payload => {
+        // Deliberately separate from scheduleRealtimeRefresh — this one
+        // tiny row doesn't need a full events/sheets refetch, just its
+        // own value applied directly to the badge.
+        if(payload && payload.new && payload.new.key === 'last_shortcut' && typeof payload.new.value === 'string'){
+          const el = document.getElementById('tlLastKeyDisplay');
+          if(el) el.textContent = payload.new.value;
+        }
+      })
       .subscribe();
   }catch(err){
     console.warn('[Ticket Library] Realtime subscription failed to start — falling back to periodic polling only.', err);
@@ -5664,37 +5673,60 @@ function tlMarkSelectedGroupInDom(){
 // the floating scratchpad panel) — for exactly the moment you've
 // already alt-tabbed away to a new tab and can't remember which number
 // you just hit in the last one.
-// Shared across every open tab, not just the one where the key was
-// actually pressed — a real screenshot showed two tabs sitting on the
-// exact same link, one saying "2 → Ticketmaster" and the other still
-// "Last: —", which defeats the point of a shared reminder when the
-// whole workflow is having several tabs open on the same tour at once.
-// localStorage's own 'storage' event is what makes this work across
-// tabs without any server round-trip — it fires in every OTHER tab
-// sharing this origin the moment one of them writes a new value.
+// Synced two ways, layered on top of each other:
+//  - localStorage + its 'storage' event: instant, and works even if
+//    Supabase is briefly unreachable, but only ever reaches OTHER TABS
+//    IN THIS SAME BROWSER — a real screenshot confirmed a second,
+//    completely different browser never saw it at all, which is
+//    exactly the gap this can't close on its own.
+//  - A one-row Supabase table (app_state), pushed on every update and
+//    picked up via the same realtime channel already used for
+//    events/sheets (see startRealtimeSync) — this is what actually
+//    reaches a different browser or device, the same way a note or a
+//    star already does.
 const TL_LAST_KEY_STORAGE = 'tlLastKeyGlobal';
 function tlUpdateLastKeyIndicator(text){
   const el = document.getElementById('tlLastKeyDisplay');
   if(el) el.textContent = text;
   try{ localStorage.setItem(TL_LAST_KEY_STORAGE, text); }catch(e){}
+  if(syncUrl){
+    supabaseRequest('app_state?key=eq.last_shortcut', {
+      method: 'PATCH',
+      body: JSON.stringify({ value: text })
+    }).catch(() => { /* not fatal — the badge already updated locally; this only affects OTHER browsers/devices seeing it */ });
+  }
 }
 window.addEventListener('storage', e => {
   if(e.key !== TL_LAST_KEY_STORAGE || e.newValue === null) return;
   const el = document.getElementById('tlLastKeyDisplay');
   if(el) el.textContent = e.newValue;
 });
-// Also pick up whatever the last tab already set, right away on load —
-// otherwise a freshly opened tab starts back at "Last: —" even though
-// every other open tab already has a real answer.
-(function(){
+// Picks up whatever's already there on load, checking Supabase FIRST
+// (the one place a different browser/device's update would actually
+// show up) and falling back to this browser's own localStorage only if
+// that fails — otherwise a freshly opened tab/browser starts back at
+// "Last: —" even though the real answer already exists somewhere.
+// Called from initApp() itself (not run immediately here) since it
+// needs syncUrl already set, which doesn't happen until initApp() runs
+// — this function is only DEFINED at this point in the file, not
+// invoked yet.
+async function tlLoadInitialLastKey(){
+  const el = document.getElementById('tlLastKeyDisplay');
+  if(!el) return;
+  if(syncUrl){
+    try{
+      const rows = await supabaseRequest('app_state?key=eq.last_shortcut&select=value');
+      if(rows && rows.length && rows[0].value){
+        el.textContent = rows[0].value;
+        return;
+      }
+    }catch(e){ /* falls through to the localStorage check below */ }
+  }
   try{
     const existing = localStorage.getItem(TL_LAST_KEY_STORAGE);
-    if(existing){
-      const el = document.getElementById('tlLastKeyDisplay');
-      if(el) el.textContent = existing;
-    }
+    if(existing) el.textContent = existing;
   }catch(e){}
-})();
+}
 // Three small copy/paste slots living in the same floating widget —
 // restored from (and saved to) localStorage so they survive a refresh.
 // Deliberately per-browser/local-only, never synced to Supabase: this
@@ -9708,6 +9740,7 @@ async function initApp(){
   await loadAllFromRemote();
   if(syncUrl) startSyncPolling();
   if(syncUrl) startRealtimeSync();
+  tlLoadInitialLastKey();
   // Signals the companion extension that the app has actually finished
   // its real work — restoring login AND fetching sheets/events from
   // Google Sheets — not just that the page's HTML finished loading.
