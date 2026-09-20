@@ -3929,6 +3929,10 @@ function scheduleRealtimeRefresh(){
   clearTimeout(realtimeRefreshTimer);
   realtimeRefreshTimer = setTimeout(() => { pollRemote(); }, 400);
 }
+// Set inside startRealtimeSync once the channel actually exists — read
+// by tlUpdateLastKeyIndicator further down to send broadcast messages
+// on the same connection.
+let tlRealtimeChannel = null;
 function startRealtimeSync(){
   if(typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function'){
     console.warn('[Ticket Library] Supabase realtime client did not load — falling back to periodic polling only.');
@@ -3936,15 +3940,28 @@ function startRealtimeSync(){
   }
   try{
     const rt = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    rt.channel('ticket-library-changes')
+    // Stored so tlUpdateLastKeyIndicator (a different function, called
+    // from wherever a shortcut fires) can send on it directly — see
+    // the broadcast send/receive pair below.
+    tlRealtimeChannel = rt.channel('ticket-library-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, scheduleRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sheets' }, scheduleRealtimeRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, payload => {
-        // Deliberately separate from scheduleRealtimeRefresh — this one
-        // tiny row doesn't need a full events/sheets refetch, just its
-        // own value applied directly to the badge.
-        if(payload && payload.new && payload.new.key === 'last_shortcut' && typeof payload.new.value === 'string'){
-          tlRenderLastKeyBadge(payload.new.value);
+      // Broadcast, not postgres_changes, for the "last key pressed"
+      // badge specifically — a genuine live report said the
+      // postgres_changes version wasn't updating another browser live
+      // even after confirming both sides had the current code. Rather
+      // than keep guessing at what might be misconfigured on that
+      // path (RLS, the publication, replica identity), broadcast is a
+      // simpler, more direct client-to-client message that doesn't
+      // depend on any of those — it skips the database layer for the
+      // live update entirely. The app_state TABLE write right below
+      // this still happens too, purely so a freshly opened tab has
+      // something real to read on load (see tlLoadInitialLastKey) —
+      // broadcast messages aren't stored anywhere, so they can't help
+      // with that part.
+      .on('broadcast', { event: 'last_key_update' }, msg => {
+        if(msg && msg.payload && typeof msg.payload.value === 'string'){
+          tlRenderLastKeyBadge(msg.payload.value);
         }
       })
       .subscribe();
@@ -5710,10 +5727,18 @@ function tlUpdateLastKeyIndicator(text){
   tlRenderLastKeyBadge(text);
   try{ localStorage.setItem(TL_LAST_KEY_STORAGE, text); }catch(e){}
   if(syncUrl){
+    // Stored so a freshly opened tab/browser has something real to
+    // read on load (see tlLoadInitialLastKey) — this alone was the
+    // path that only reliably worked after that tab's own next reload.
     supabaseRequest('app_state?key=eq.last_shortcut', {
       method: 'PATCH',
       body: JSON.stringify({ value: text })
-    }).catch(() => { /* not fatal — the badge already updated locally; this only affects OTHER browsers/devices seeing it */ });
+    }).catch(() => { /* not fatal — the badge already updated locally; this only affects what a FUTURE fresh load would see */ });
+    // The actual live update to every ALREADY-OPEN tab/browser — sent
+    // directly over the realtime connection, not through the database.
+    if(tlRealtimeChannel){
+      tlRealtimeChannel.send({ type: 'broadcast', event: 'last_key_update', payload: { value: text } }).catch(() => {});
+    }
   }
 }
 window.addEventListener('storage', e => {
