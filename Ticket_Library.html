@@ -403,8 +403,12 @@
   /* Heading-row icon buttons (pin, collapse, note, history) sized up
      from the compact per-card buttons elsewhere — this row has real
      room to spare, and "bigger, rounder, easier to click and see" was
-     a direct, specific ask. */
-  .heading-icons .icon-btn{width:28px;height:28px;border-radius:9px;}
+     a direct, specific ask (twice — the first size bump still wasn't
+     enough). The SVGs inside have their own width/height attributes
+     baked into the markup; CSS overrides those directly rather than
+     needing to touch every icon's own HTML. */
+  .heading-icons .icon-btn{width:34px;height:34px;border-radius:11px;}
+  .heading-icons .icon-btn svg{width:19px;height:19px;}
   /* The big "Copy Link" pill that appears once a group is selected —
      an actual labeled button rather than another small icon, since
      it's meant to be the obvious, unmissable thing to reach for right
@@ -5660,10 +5664,37 @@ function tlMarkSelectedGroupInDom(){
 // the floating scratchpad panel) — for exactly the moment you've
 // already alt-tabbed away to a new tab and can't remember which number
 // you just hit in the last one.
+// Shared across every open tab, not just the one where the key was
+// actually pressed — a real screenshot showed two tabs sitting on the
+// exact same link, one saying "2 → Ticketmaster" and the other still
+// "Last: —", which defeats the point of a shared reminder when the
+// whole workflow is having several tabs open on the same tour at once.
+// localStorage's own 'storage' event is what makes this work across
+// tabs without any server round-trip — it fires in every OTHER tab
+// sharing this origin the moment one of them writes a new value.
+const TL_LAST_KEY_STORAGE = 'tlLastKeyGlobal';
 function tlUpdateLastKeyIndicator(text){
   const el = document.getElementById('tlLastKeyDisplay');
   if(el) el.textContent = text;
+  try{ localStorage.setItem(TL_LAST_KEY_STORAGE, text); }catch(e){}
 }
+window.addEventListener('storage', e => {
+  if(e.key !== TL_LAST_KEY_STORAGE || e.newValue === null) return;
+  const el = document.getElementById('tlLastKeyDisplay');
+  if(el) el.textContent = e.newValue;
+});
+// Also pick up whatever the last tab already set, right away on load —
+// otherwise a freshly opened tab starts back at "Last: —" even though
+// every other open tab already has a real answer.
+(function(){
+  try{
+    const existing = localStorage.getItem(TL_LAST_KEY_STORAGE);
+    if(existing){
+      const el = document.getElementById('tlLastKeyDisplay');
+      if(el) el.textContent = existing;
+    }
+  }catch(e){}
+})();
 // Three small copy/paste slots living in the same floating widget —
 // restored from (and saved to) localStorage so they survive a refresh.
 // Deliberately per-browser/local-only, never synced to Supabase: this
