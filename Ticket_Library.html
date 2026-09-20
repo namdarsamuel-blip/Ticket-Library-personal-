@@ -626,13 +626,14 @@
      selected group (see tlMarkSelectedGroupInDom), added directly as a
      DOM node rather than through the normal render cycle. */
   .tl-shortcut-badge{
-    position:absolute; top:8px; right:8px; z-index:3;
-    min-width:20px; height:20px; padding:0 5px;
+    position:absolute; top:7px; right:7px; z-index:3;
+    min-width:25px; height:25px; padding:0 6px;
     display:flex; align-items:center; justify-content:center;
     background:var(--teal, #4fc8bf); color:#0d1a19;
-    font-size:11px; font-weight:800; font-family:system-ui, -apple-system, sans-serif;
-    border-radius:5px; text-transform:uppercase;
-    box-shadow:0 1px 4px rgba(0,0,0,.35);
+    font-size:14px; font-weight:900; font-family:system-ui, -apple-system, sans-serif;
+    border-radius:6px; text-transform:uppercase;
+    border:1.5px solid rgba(13,26,25,.25);
+    box-shadow:0 2px 6px rgba(0,0,0,.5);
     pointer-events:none;
   }
   .ticket.shift-day{border-left-color:var(--day-color);background:var(--day-bg);}
@@ -1577,9 +1578,9 @@
     position:fixed; top:14px; left:14px; z-index:500;
   }
   .tl-scratchpad-lastkey{
-    display:flex; flex-direction:column; align-items:center; gap:0;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
     color:#0d1a19; text-align:center;
-    padding:6px 16px; border-radius:8px; background:var(--teal);
+    padding:10px 24px; border-radius:10px; background:var(--teal);
     border:none; box-shadow:0 2px 10px rgba(0,0,0,.4);
     white-space:nowrap; cursor:pointer; font-family:inherit;
   }
@@ -8634,6 +8635,28 @@ function renderBroadway(){
 // very next .day-grid via an adjacent-sibling rule. The section key is
 // just the heading text — unique within a given render in every case
 // this app produces one.
+// Big and obvious on purpose, unlike the small icon-sized buttons
+// elsewhere in the heading bar — this is the one action you'd want to
+// reach for repeatedly right after selecting a group (to re-copy the
+// link for one more tab, send it again, etc.), so it gets to be an
+// actual pill button with its own label instead of another small icon
+// you have to recognize/remember. Only ever appears on whichever
+// heading is currently selected. Pulled out as its own function since
+// it's now inserted two different ways: baked into a heading's own
+// HTML on a normal render (dayHeadingHtml), and injected directly by
+// the click handler when selecting a group WITHOUT a full render (see
+// the bar's click handler) — a full re-render of potentially hundreds
+// of cards just to toggle one heading's own state was a real,
+// noticeable delay, the opposite of what "select this for instant
+// shortcuts" should feel like.
+function tlCopyLinkButtonHtml(){
+  return `<button type="button" class="heading-copy-link-btn" data-action="copy-current-link" title="Copy this link again">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>Copy Link</span>
+  </button>`;
+}
+
 function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverride = null, extraClass = '', bulkCodeKeys = null, bulkReleaseKeys = null){
   const key = sectionKeyOverride || label;
   const collapsed = collapsedSections.has(key);
@@ -8705,18 +8728,7 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
   // same way whether it got there by being clicked or restored from a
   // link (see tlMarkSelectedGroupInDom).
   const isShortcutSelected = typeof tlSelectedGroupKey !== 'undefined' && tlSelectedGroupKey === key;
-  // Big and obvious on purpose, unlike the small icon-sized buttons
-  // elsewhere in this bar — this is the one action you'd want to reach
-  // for repeatedly right after selecting a group (to re-copy the link
-  // for one more tab, send it again, etc.), so it gets to be an actual
-  // pill button with its own label instead of another small icon you
-  // have to recognize/remember. Only ever appears on whichever heading
-  // is currently selected — there's nothing to copy for the others.
-  const copyLinkBtn = isShortcutSelected ? `<button type="button" class="heading-copy-link-btn" data-action="copy-current-link" title="Copy this link again">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
-    <span>Copy Link</span>
-  </button>` : '';
+  const copyLinkBtn = isShortcutSelected ? tlCopyLinkButtonHtml() : '';
   // Collapse/expand is its own dedicated button now, deliberately
   // separated from both the bar itself (which toggles shortcut mode —
   // see the click handler) and the heading's own name (which copies it —
@@ -9055,19 +9067,50 @@ listRoot.addEventListener('click', async e => {
     // (?group=...). Toggling rather than only ever turning it on means
     // clicking an already-selected bar again turns it back off, instead
     // of needing to go select a DIFFERENT group just to get out of it.
+    //
+    // Updates the DOM directly here instead of calling the normal
+    // render() — a real, noticeable delay before the outline/Copy Link
+    // button appeared turned out to be a full re-render of potentially
+    // hundreds of cards, just to toggle ONE heading's own state.
+    // Nothing about which events are shown/sorted/filtered changes from
+    // this click, so nothing else actually needed to be rebuilt.
     const key = heading.dataset.section;
     const turningOn = tlSelectedGroupKey !== key;
+    const prevKey = tlSelectedGroupKey;
     tlSelectedGroupKey = turningOn ? key : null;
     syncUrlWithState();
-    // Copies the link the instant a group is selected — that's the URL
-    // someone actually wants in hand right after selecting a group
-    // (to paste into a new tab, send to another device, etc.), so
-    // there's no reason to make that a second, separate step. The big
-    // "Copy Link" button that appears in this same bar while a group is
-    // selected (see dayHeadingHtml) covers re-copying it again later,
-    // without needing to toggle off and back on.
-    if(turningOn) copyToClipboard(location.href);
-    render();
+
+    if(prevKey && prevKey !== key){
+      const prevHeading = listRoot.querySelector(`.day-heading[data-section="${CSS.escape(prevKey)}"]`);
+      if(prevHeading){
+        prevHeading.classList.remove('tl-shortcut-selected');
+        const oldBtn = prevHeading.querySelector('[data-action="copy-current-link"]');
+        if(oldBtn) oldBtn.remove();
+      }
+    }
+    if(turningOn){
+      heading.classList.add('tl-shortcut-selected');
+      if(!heading.querySelector('[data-action="copy-current-link"]')){
+        const nameEl = heading.querySelector('.heading-label');
+        if(nameEl) nameEl.insertAdjacentHTML('afterend', tlCopyLinkButtonHtml());
+      }
+      // Copies the link the instant a group is selected — that's the
+      // URL someone actually wants in hand right after selecting a
+      // group (to paste into a new tab, send to another device, etc.),
+      // so there's no reason to make that a second, separate step. The
+      // Copy Link button just injected above covers re-copying it
+      // again later, without needing to toggle off and back on.
+      copyToClipboard(location.href);
+    } else {
+      heading.classList.remove('tl-shortcut-selected');
+      const btn = heading.querySelector('[data-action="copy-current-link"]');
+      if(btn) btn.remove();
+    }
+    // Still needed directly (not just via the class/button toggling
+    // above): this is what moves the number-key badges from the
+    // previous group's cards onto the new one's, in that same
+    // lightweight, targeted way rather than a full render().
+    tlMarkSelectedGroupInDom();
     return;
   }
 
