@@ -1563,19 +1563,27 @@
     color:var(--muted);font-size:14.5px;
   }
   /* Small floating "last key pressed" reminder + 3 quick copy/paste
-     slots — tucked in a corner deliberately small enough to never
-     compete with the actual content for attention. */
+     slots. Collapsed to just the badge by default — a real, live
+     screenshot showed the expanded version sitting directly on top of
+     the search box and other header controls, which is exactly the
+     kind of "in the way" this was supposed to avoid. The badge alone is
+     small enough to sit in the corner without covering anything; the
+     slots only appear as a dropdown once it's actually clicked. */
   .tl-scratchpad{
     position:fixed; top:14px; left:14px; z-index:500;
-    background:var(--card); border:1px solid var(--hairline); border-radius:10px;
-    padding:8px; width:190px;
-    box-shadow:0 2px 10px rgba(0,0,0,.35);
-    display:flex; flex-direction:column; gap:6px;
   }
   .tl-scratchpad-lastkey{
-    font-size:11px; color:var(--muted); text-align:center;
-    padding:4px 6px; border-radius:6px; background:var(--bg);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    display:block; font-size:11px; color:var(--muted); text-align:center;
+    padding:5px 10px; border-radius:8px; background:var(--card);
+    border:1px solid var(--hairline); box-shadow:0 2px 10px rgba(0,0,0,.35);
+    white-space:nowrap; cursor:pointer; font-family:inherit;
+  }
+  .tl-scratchpad-lastkey:hover{background:var(--card-hover);}
+  .tl-scratchpad-dropdown{
+    margin-top:6px; background:var(--card); border:1px solid var(--hairline);
+    border-radius:10px; padding:8px; width:190px;
+    box-shadow:0 4px 14px rgba(0,0,0,.4);
+    display:flex; flex-direction:column; gap:6px;
   }
   .tl-scratchpad-slot{display:flex; align-items:center; gap:4px;}
   .tl-scratchpad-input{
@@ -1914,31 +1922,34 @@
 </main>
 
 <!-- Small floating reminder of the last shortcut key pressed, plus 3
-     quick copy/paste slots — see the JS block further down for what
-     each piece does. Deliberately tiny and tucked in a corner so it's
-     there when wanted without getting in the way otherwise. -->
+     quick copy/paste slots tucked behind it — collapsed to just the
+     "Last:" badge by default so it can sit in a corner without actually
+     covering anything there; click it to drop the 3 slots down below.
+     See the JS block further down for what each piece does. -->
 <div class="tl-scratchpad" id="tlScratchpad">
-  <div class="tl-scratchpad-lastkey" id="tlLastKeyDisplay">Last: —</div>
-  <div class="tl-scratchpad-slot">
-    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot0" placeholder="Slot 1 — paste/type here" autocomplete="off">
-    <button type="button" class="tl-scratchpad-copy-btn" data-slot="0" title="Copy this slot">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
-    </button>
-  </div>
-  <div class="tl-scratchpad-slot">
-    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot1" placeholder="Slot 2 — paste/type here" autocomplete="off">
-    <button type="button" class="tl-scratchpad-copy-btn" data-slot="1" title="Copy this slot">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
-    </button>
-  </div>
-  <div class="tl-scratchpad-slot">
-    <input type="text" class="tl-scratchpad-input" id="tlScratchSlot2" placeholder="Slot 3 — paste/type here" autocomplete="off">
-    <button type="button" class="tl-scratchpad-copy-btn" data-slot="2" title="Copy this slot">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
-    </button>
+  <button type="button" class="tl-scratchpad-lastkey" id="tlLastKeyDisplay" title="Click to open 3 quick copy/paste slots">Last: —</button>
+  <div class="tl-scratchpad-dropdown" id="tlScratchpadDropdown" style="display:none;">
+    <div class="tl-scratchpad-slot">
+      <input type="text" class="tl-scratchpad-input" id="tlScratchSlot0" placeholder="Slot 1 — paste/type here" autocomplete="off">
+      <button type="button" class="tl-scratchpad-copy-btn" data-slot="0" title="Copy this slot">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+    <div class="tl-scratchpad-slot">
+      <input type="text" class="tl-scratchpad-input" id="tlScratchSlot1" placeholder="Slot 2 — paste/type here" autocomplete="off">
+      <button type="button" class="tl-scratchpad-copy-btn" data-slot="1" title="Copy this slot">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+    <div class="tl-scratchpad-slot">
+      <input type="text" class="tl-scratchpad-input" id="tlScratchSlot2" placeholder="Slot 3 — paste/type here" autocomplete="off">
+      <button type="button" class="tl-scratchpad-copy-btn" data-slot="2" title="Copy this slot">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-copy"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-check" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -5657,6 +5668,9 @@ function tlUpdateLastKeyIndicator(text){
 // restored from (and saved to) localStorage so they survive a refresh.
 // Deliberately per-browser/local-only, never synced to Supabase: this
 // is a personal scratch space, not part of the show data itself.
+// Hidden behind the "Last:" badge by default (see tl-scratchpad-dropdown
+// in the CSS/HTML) — click the badge to drop them down, click anywhere
+// else to close it back up again.
 (function(){
   const SLOT_COUNT = 3;
   const STORAGE_PREFIX = 'tlScratchpadSlot_';
@@ -5679,6 +5693,21 @@ function tlUpdateLastKeyIndicator(text){
       btn._copyTimeout = setTimeout(() => btn.classList.remove('copied'), 1200);
     });
   });
+  const badge = document.getElementById('tlLastKeyDisplay');
+  const dropdown = document.getElementById('tlScratchpadDropdown');
+  if(badge && dropdown){
+    badge.addEventListener('click', e => {
+      e.stopPropagation();
+      dropdown.style.display = dropdown.style.display === 'none' ? 'flex' : 'none';
+    });
+    // Clicking anywhere outside closes it back up — same as any other
+    // small dropdown/popover in the app.
+    document.addEventListener('click', e => {
+      if(dropdown.style.display === 'none') return;
+      if(e.target.closest('.tl-scratchpad')) return;
+      dropdown.style.display = 'none';
+    });
+  }
 })();
 document.addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
