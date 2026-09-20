@@ -1577,12 +1577,18 @@
     position:fixed; top:14px; left:14px; z-index:500;
   }
   .tl-scratchpad-lastkey{
-    display:block; font-size:13px; font-weight:800; color:#0d1a19; text-align:center;
-    padding:7px 14px; border-radius:8px; background:var(--teal);
+    display:flex; flex-direction:column; align-items:center; gap:0;
+    color:#0d1a19; text-align:center;
+    padding:6px 16px; border-radius:8px; background:var(--teal);
     border:none; box-shadow:0 2px 10px rgba(0,0,0,.4);
     white-space:nowrap; cursor:pointer; font-family:inherit;
   }
   .tl-scratchpad-lastkey:hover{filter:brightness(1.08);}
+  /* The key actually pressed is the thing worth reading at a glance;
+     which platform it opened is useful but secondary — sized and
+     weighted accordingly instead of both competing equally. */
+  .tl-lastkey-big{font-size:19px;font-weight:900;line-height:1.15;}
+  .tl-lastkey-small{font-size:9px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.04em;line-height:1.4;}
   .tl-scratchpad-dropdown{
     margin-top:6px; background:var(--card); border:1px solid var(--hairline);
     border-radius:10px; padding:8px; width:190px;
@@ -3938,8 +3944,7 @@ function startRealtimeSync(){
         // tiny row doesn't need a full events/sheets refetch, just its
         // own value applied directly to the badge.
         if(payload && payload.new && payload.new.key === 'last_shortcut' && typeof payload.new.value === 'string'){
-          const el = document.getElementById('tlLastKeyDisplay');
-          if(el) el.textContent = payload.new.value;
+          tlRenderLastKeyBadge(payload.new.value);
         }
       })
       .subscribe();
@@ -5684,10 +5689,25 @@ function tlMarkSelectedGroupInDom(){
 //    events/sheets (see startRealtimeSync) — this is what actually
 //    reaches a different browser or device, the same way a note or a
 //    star already does.
+// The synced/stored value itself stays a single plain string (e.g.
+// "3 → Ticketmaster") — only how it's DRAWN into the badge changed, so
+// none of the syncing above needed to change shape along with it.
 const TL_LAST_KEY_STORAGE = 'tlLastKeyGlobal';
-function tlUpdateLastKeyIndicator(text){
+// The key itself (what was actually pressed) is the thing worth
+// reading at a glance; which platform it opened is secondary detail —
+// still there, just not competing for the same attention.
+function tlRenderLastKeyBadge(text){
   const el = document.getElementById('tlLastKeyDisplay');
-  if(el) el.textContent = text;
+  if(!el) return;
+  const parts = String(text || '').split(' → ');
+  if(parts.length === 2){
+    el.innerHTML = `<span class="tl-lastkey-big">${escapeHtml(parts[0])}</span><span class="tl-lastkey-small">${escapeHtml(parts[1])}</span>`;
+  } else {
+    el.innerHTML = `<span class="tl-lastkey-big">${escapeHtml(text)}</span>`;
+  }
+}
+function tlUpdateLastKeyIndicator(text){
+  tlRenderLastKeyBadge(text);
   try{ localStorage.setItem(TL_LAST_KEY_STORAGE, text); }catch(e){}
   if(syncUrl){
     supabaseRequest('app_state?key=eq.last_shortcut', {
@@ -5698,8 +5718,7 @@ function tlUpdateLastKeyIndicator(text){
 }
 window.addEventListener('storage', e => {
   if(e.key !== TL_LAST_KEY_STORAGE || e.newValue === null) return;
-  const el = document.getElementById('tlLastKeyDisplay');
-  if(el) el.textContent = e.newValue;
+  tlRenderLastKeyBadge(e.newValue);
 });
 // Picks up whatever's already there on load, checking Supabase FIRST
 // (the one place a different browser/device's update would actually
@@ -5711,20 +5730,18 @@ window.addEventListener('storage', e => {
 // — this function is only DEFINED at this point in the file, not
 // invoked yet.
 async function tlLoadInitialLastKey(){
-  const el = document.getElementById('tlLastKeyDisplay');
-  if(!el) return;
   if(syncUrl){
     try{
       const rows = await supabaseRequest('app_state?key=eq.last_shortcut&select=value');
       if(rows && rows.length && rows[0].value){
-        el.textContent = rows[0].value;
+        tlRenderLastKeyBadge(rows[0].value);
         return;
       }
     }catch(e){ /* falls through to the localStorage check below */ }
   }
   try{
     const existing = localStorage.getItem(TL_LAST_KEY_STORAGE);
-    if(existing) el.textContent = existing;
+    if(existing) tlRenderLastKeyBadge(existing);
   }catch(e){}
 }
 // Three small copy/paste slots living in the same floating widget —
