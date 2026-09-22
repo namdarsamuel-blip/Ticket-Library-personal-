@@ -5677,7 +5677,12 @@ function tlMarkSelectedGroupInDom(){
   if(!heading) return;
   if(!tlScrolledToSelectedGroup){
     tlScrolledToSelectedGroup = true;
-    heading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 'start' rather than 'center' — centering the heading itself left
+    // whatever tour came right before it filling the top half of the
+    // screen, which is exactly the "landing in the wrong spot" a real
+    // screenshot showed. Landing at the top means the selected tour's
+    // OWN cards get the room instead.
+    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   const grid = heading.nextElementSibling;
   if(!grid) return;
@@ -5711,18 +5716,17 @@ function tlMarkSelectedGroupInDom(){
 // "3 → Ticketmaster") — only how it's DRAWN into the badge changed, so
 // none of the syncing above needed to change shape along with it.
 const TL_LAST_KEY_STORAGE = 'tlLastKeyGlobal';
-// The key itself (what was actually pressed) is the thing worth
-// reading at a glance; which platform it opened is secondary detail —
-// still there, just not competing for the same attention.
+// The key itself (what was actually pressed) is all that's shown now —
+// which platform it opened (Ticketmaster vs VividSeats) turned out not
+// to be worth the label at all, not even as smaller secondary text.
+// The synced/stored value stays the full "3 → Ticketmaster" string
+// though (see tlUpdateLastKeyIndicator below) — only the DISPLAY was
+// simplified, so nothing about the syncing itself needed to change.
 function tlRenderLastKeyBadge(text){
   const el = document.getElementById('tlLastKeyDisplay');
   if(!el) return;
-  const parts = String(text || '').split(' → ');
-  if(parts.length === 2){
-    el.innerHTML = `<span class="tl-lastkey-big">${escapeHtml(parts[0])}</span><span class="tl-lastkey-small">${escapeHtml(parts[1])}</span>`;
-  } else {
-    el.innerHTML = `<span class="tl-lastkey-big">${escapeHtml(text)}</span>`;
-  }
+  const key = String(text || '').split(' → ')[0];
+  el.innerHTML = `<span class="tl-lastkey-big">${escapeHtml(key)}</span>`;
 }
 function tlUpdateLastKeyIndicator(text){
   tlRenderLastKeyBadge(text);
