@@ -400,6 +400,18 @@
      the rest of the bar does, so it's worth reading as its own small
      target rather than blending into the bar around it. */
   .heading-label{cursor:copy;border-radius:4px;padding:1px 4px;margin:-1px -4px;transition:background .15s ease, color .15s ease;}
+  /* "N shows · date range" — what makes a fully collapsed sheet usable
+     as a compact, flip-through overview: this is the one piece of
+     information that stays visible whether the section is expanded or
+     collapsed, so scanning a long list of collapsed tours still tells
+     you how big each one is and when it runs without opening any of
+     them. */
+  .heading-summary{font-size:11.5px;color:var(--muted);font-weight:500;white-space:nowrap;}
+  /* The visual companion to that text — a quick, at-a-glance read of
+     relative tour size when scanning a long collapsed list, without
+     needing to stop and read the number itself for each one. */
+  .heading-gauge{display:inline-block;width:26px;height:6px;background:rgba(255,255,255,.14);border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:2px;}
+  .heading-gauge-fill{display:block;height:100%;background:var(--teal);border-radius:3px;}
   /* Heading-row icon buttons (pin, collapse, note, history) sized up
      from the compact per-card buttons elsewhere — this row has real
      room to spare, and "bigger, rounder, easier to click and see" was
@@ -3468,8 +3480,33 @@ function applyExpandCycleState(state){
     collapsedSections = new Set();
   }
 }
+// Remembered per sheet — collapsed state used to reset to fully expanded
+// on every single reload and every sheet switch, which meant using this
+// as a genuine "flip through and scan" view meant re-collapsing
+// everything by hand each time you came back to it. expandCycleState
+// (a plain 0/1/2) is what's actually saved, not the collapsedSections
+// Set itself — the Set depends on exactly which headings exist right
+// now, which can change between visits (new shows added, etc.), so
+// restoring is "recompute the same STATE against today's headings"
+// rather than trying to replay a stale, possibly-mismatched list.
+function tlSaveExpandCycleState(){
+  if(!activeSheetName) return;
+  try{ localStorage.setItem('tlExpandCycle_' + activeSheetName, String(expandCycleState)); }catch(e){}
+}
+function tlRestoreExpandCycleState(){
+  if(!activeSheetName) return 2;
+  try{
+    const raw = localStorage.getItem('tlExpandCycle_' + activeSheetName);
+    if(raw !== null){
+      const n = parseInt(raw, 10);
+      if(n === 0 || n === 1 || n === 2) return n;
+    }
+  }catch(e){}
+  return 2; // default: fully expanded, same as it's always been
+}
 expandCollapseBtn.addEventListener('click', () => {
   applyExpandCycleState((expandCycleState + 1) % 3);
+  tlSaveExpandCycleState();
   render();
 });
 function updateExpandCollapseBtnLabel(){
@@ -4199,6 +4236,13 @@ async function loadAllFromRemote(){
     collapsedSections = new Set(computePresaleSubHeadingKeys(allEvents));
   }
   render();
+  if(!(activeSheet() && activeSheet().mode === 'presale')){
+    const savedState = tlRestoreExpandCycleState();
+    if(savedState !== 2){
+      applyExpandCycleState(savedState);
+      render();
+    }
+  }
   setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
   loadRemainingEventsInBackground();
 }
@@ -4235,6 +4279,15 @@ async function loadRemainingEventsInBackground(){
   syncActiveSheetFromCache();
   renderTabs();
   updateModeUI();
+  // A real, live bug: the very first render (the fast-path one, with
+  // only the active sheet's own data) already used up the ONE scroll
+  // attempt a URL-selected group gets — but that render can still land
+  // right as OTHER things about the page are settling, and once used,
+  // the scroll never got a second chance to correct itself even after
+  // everything had fully finished loading. Resetting it right here
+  // gives this render — the one where loading is genuinely complete —
+  // one more chance to land in the right spot if the first one didn't.
+  if(tlSelectedGroupKey) tlScrolledToSelectedGroup = false;
   render();
 }
 
@@ -5988,6 +6041,18 @@ function setActiveSheet(name){
     collapsedSections = new Set(computePresaleSubHeadingKeys(allEvents));
   }
   render();
+  // Presale already has its own deliberate default (set just above) —
+  // only standard sheets check for a remembered preference. Applied
+  // AFTER the render above since applyExpandCycleState needs the
+  // headings actually in the DOM to work from; only costs a second
+  // render when there's a genuinely non-default saved state to apply.
+  if(!sheet || sheet.mode !== 'presale'){
+    const savedState = tlRestoreExpandCycleState();
+    if(savedState !== 2){
+      applyExpandCycleState(savedState);
+      render();
+    }
+  }
 }
 
 async function renameSheet(oldName){
@@ -6501,7 +6566,7 @@ function renderPresale(){
         flushPinnedGrid();
         const pinKeys = (sortMode === 'name' || sortMode === 'venue') ? g.events.map(eventKey) : null;
         const bulkCodeKeys = sortMode === 'name' ? pinKeys : null;
-        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys);
+        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys, null, g.events);
       }
       g.events.forEach(ev => pinnedPending.push(cardHtmlPresale(ev)));
     });
@@ -6550,7 +6615,7 @@ function renderPresale(){
       // grouping by artist), releasing "everything dropping at 10am" is
       // a meaningful action no matter how the list is currently sorted.
       const bulkReleaseKeys = g.events.map(eventKey);
-      html += dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, isHourBand ? 'hour-heading' : '', bulkCodeKeys, bulkReleaseKeys);
+      html += dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, isHourBand ? 'hour-heading' : '', bulkCodeKeys, bulkReleaseKeys, g.events);
     }
     if(sortMode === 'date'){
       // Within a single presale-time (or show-date-fallback) bucket,
@@ -6694,7 +6759,7 @@ function renderSearchResults(query){
     searchGroups.forEach(g => {
       if(g.showHeading){
         const pinKeys = g.events.map(eventKey);
-        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys);
+        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, null, '', null, null, g.events);
       }
       // Show each result the way its own sheet actually shows it — a
       // presale event still needs its Code/public-sale-date field visible
@@ -7017,7 +7082,7 @@ function renderStandard(){
         flushPinnedGrid();
         const pinKeys = (sortMode === 'name' || sortMode === 'venue') ? g.events.map(eventKey) : null;
         const bulkCodeKeys = sortMode === 'name' ? pinKeys : null;
-        htmlParts.push(dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys));
+        htmlParts.push(dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys, null, g.events));
       }
       g.events.forEach(ev => pinnedPending.push(cardHtmlStandard(ev)));
     });
@@ -7040,7 +7105,7 @@ function renderStandard(){
       // 3" isn't a category to pin the way an artist or venue is.
       const pinKeys = (sortMode === 'name' || sortMode === 'venue') ? g.events.map(eventKey) : null;
       const bulkCodeKeys = sortMode === 'name' ? pinKeys : null;
-      htmlParts.push(dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, '', bulkCodeKeys));
+      htmlParts.push(dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, '', bulkCodeKeys, null, g.events));
     }
     g.events.forEach(ev => pendingCards.push(cardHtmlStandard(ev)));
   });
@@ -8605,7 +8670,7 @@ function renderBroadway(){
         flushPinnedGrid();
         const pinKeys = (sortMode === 'name' || sortMode === 'venue') ? g.events.map(eventKey) : null;
         const bulkCodeKeys = sortMode === 'name' ? pinKeys : null;
-        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys);
+        html += dayHeadingHtml(g.heading, bulkOpenLinksHtml(), pinKeys, 'pinned:' + g.heading, '', bulkCodeKeys, null, g.events);
       }
       g.events.forEach(ev => pinnedPending.push(pinnedCardHtml(ev)));
     });
@@ -8619,7 +8684,7 @@ function renderBroadway(){
     if(g.showHeading){
       const pinKeys = (sortMode === 'name' || sortMode === 'venue') ? g.events.map(eventKey) : null;
       const bulkCodeKeys = sortMode === 'name' ? pinKeys : null;
-      html += dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, '', bulkCodeKeys);
+      html += dayHeadingHtml(g.heading, (isToday ? '<span class="tag-today">Today</span>' : '') + bulkOpenLinksHtml(), pinKeys, null, '', bulkCodeKeys, null, g.events);
     }
     // Split into per-show subgroups so a merged card never mixes two
     // different shows' sessions together. When already grouped by date,
@@ -8661,7 +8726,38 @@ function tlCopyLinkButtonHtml(){
   </button>`;
 }
 
-function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverride = null, extraClass = '', bulkCodeKeys = null, bulkReleaseKeys = null){
+// The compact "N shows · date range" line — this is what makes a fully
+// collapsed sheet into the "flip through and see what's there before
+// committing to opening it" view: how many shows a tour has and when
+// they run, all visible without expanding a single one.
+function tlGroupSummaryText(events){
+  if(!events || !events.length) return '';
+  const count = events.length;
+  const dates = events.map(ev => ev.dateObj).filter(Boolean).sort((a, b) => a - b);
+  let rangeStr = '';
+  if(dates.length){
+    const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const first = fmt(new Date(dates[0]));
+    const last = fmt(new Date(dates[dates.length - 1]));
+    rangeStr = first === last ? first : `${first}\u2013${last}`;
+  }
+  const showWord = count === 1 ? 'show' : 'shows';
+  return rangeStr ? `${count} ${showWord} \u00b7 ${rangeStr}` : `${count} ${showWord}`;
+}
+// A real, visual gauge — not just the number in the text above — so
+// scanning a long collapsed list shows relative tour size at a glance
+// (a quick "which of these is actually a big tour" read) without
+// having to stop and read digits for each one. Scaled against a fixed
+// 15-show reference rather than whatever the biggest tour on THIS
+// sheet happens to be, so one tour's bar means the same thing whether
+// you're comparing it within a small sheet or a huge one.
+function tlGroupGaugeHtml(count){
+  if(!count) return '';
+  const pct = Math.max(6, Math.min(100, Math.round((count / 15) * 100)));
+  return `<span class="heading-gauge" title="${count} show${count === 1 ? '' : 's'}"><span class="heading-gauge-fill" style="width:${pct}%"></span></span>`;
+}
+
+function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverride = null, extraClass = '', bulkCodeKeys = null, bulkReleaseKeys = null, groupEvents = null){
   const key = sectionKeyOverride || label;
   const collapsed = collapsedSections.has(key);
   let pinBtn = '';
@@ -8742,8 +8838,11 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
   const collapseBtn = `<button type="button" class="icon-btn heading-collapse-btn" data-action="collapse-heading" data-section="${escapeHtml(key)}" title="${collapsed ? 'Expand' : 'Collapse'} this section">
     <svg class="collapse-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
   </button>`;
+  const summaryText = tlGroupSummaryText(groupEvents);
+  const gaugeHtml = groupEvents ? tlGroupGaugeHtml(groupEvents.length) : '';
+  const groupSummary = summaryText ? `${gaugeHtml}<span class="heading-summary">${escapeHtml(summaryText)}</span>` : '';
   return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''} ${isShortcutSelected ? 'tl-shortcut-selected' : ''}" data-section="${escapeHtml(key)}">
-    <span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${extraHtml}${copyLinkBtn}
+    <span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${groupSummary}${extraHtml}${copyLinkBtn}
     <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${pinBtn}${collapseBtn}</div>
   </div>${tourNotePreview}`;
 }
