@@ -5746,7 +5746,7 @@ function tlMarkSelectedGroupInDom(){
     const badge = document.createElement('div');
     badge.className = 'tl-shortcut-badge';
     badge.textContent = keyLabel;
-    badge.title = `Press "${keyLabel}" for Ticketmaster — hold Alt for VividSeats instead`;
+    badge.title = `Press "${keyLabel}" for this show's primary link — hold Alt for VividSeats instead`;
     card.appendChild(badge);
   });
 }
@@ -5917,11 +5917,25 @@ document.addEventListener('keydown', e => {
   const card = cards[idx];
   if(!card) return;
   const useVivid = e.altKey;
-  const linkEl = card.querySelector(useVivid ? '.link-btn.site-vivid' : '.link-btn.site-tm');
+  // The primary link is always the FIRST link button in the card
+  // regardless of which actual platform it is (Ticketmaster, Seatgeek,
+  // Evenue, AXS, whatever that specific show's primary site happens to
+  // be) — a real screenshot showed exactly this: two of eight cards had
+  // Seatgeek/Evenue as their primary instead of Ticketmaster, and this
+  // used to hardcode looking for a Ticketmaster-specific button
+  // specifically, silently doing nothing on those two cards while the
+  // Ticketmaster ones worked fine. Alt still means VividSeats
+  // specifically, regardless of what the primary is — that part was
+  // always a deliberate, explicit platform choice, not "whatever's
+  // first."
+  const linkEl = useVivid
+    ? card.querySelector('.link-btn.site-vivid')
+    : card.querySelector('.ticket-actions .link-btn');
   if(!linkEl || !linkEl.href) return;
   e.preventDefault();
   window.open(linkEl.href, '_blank', 'noopener');
-  tlUpdateLastKeyIndicator(`${useVivid ? 'Alt+' : ''}${TL_OPEN_NTH_KEY_ORDER[idx].toUpperCase()} → ${useVivid ? 'VividSeats' : 'Ticketmaster'}`);
+  const platformLabel = useVivid ? 'VividSeats' : ((linkEl.textContent || '').trim() || 'Primary');
+  tlUpdateLastKeyIndicator(`${useVivid ? 'Alt+' : ''}${TL_OPEN_NTH_KEY_ORDER[idx].toUpperCase()} → ${platformLabel}`);
 });
 
 let sheetNameManuallyEdited = false;
