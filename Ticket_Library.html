@@ -406,7 +406,7 @@
      collapsed, so scanning a long list of collapsed tours still tells
      you how big each one is and when it runs without opening any of
      them. */
-  .heading-summary{font-size:15px;color:var(--text);font-weight:700;white-space:nowrap;}
+  .heading-summary{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);font-weight:700;white-space:nowrap;}
   /* The visual companion to that text — a quick, at-a-glance read of
      relative tour size when scanning a long collapsed list, without
      needing to stop and read the number itself for each one. Sized up
@@ -6413,8 +6413,11 @@ function render(){
   // Deferred one tick so the DOM has actually been rebuilt below before
   // this looks for the heading to highlight — render() reassigns the
   // list's innerHTML synchronously further down, and this needs to run
-  // after that, not before it.
+  // after that, not before it. Same reasoning for the gauge bars right
+  // next to it — they need every heading for this render to already be
+  // in the DOM before they can be measured against each other.
   requestAnimationFrame(tlMarkSelectedGroupInDom);
+  requestAnimationFrame(tlNormalizeGaugeBars);
   if(historyViewActive){
     updateModeUI();
     renderHistoryView();
@@ -8774,14 +8777,34 @@ function tlGroupSummaryText(events){
 // A real, visual gauge — not just the number in the text above — so
 // scanning a long collapsed list shows relative tour size at a glance
 // (a quick "which of these is actually a big tour" read) without
-// having to stop and read digits for each one. Scaled against a fixed
-// 15-show reference rather than whatever the biggest tour on THIS
-// sheet happens to be, so one tour's bar means the same thing whether
-// you're comparing it within a small sheet or a huge one.
+// having to stop and read digits for each one. Scaled against the
+// BIGGEST tour actually on the current sheet, not an arbitrary fixed
+// number — a fixed reference point (the first version of this used 15)
+// doesn't mean anything concrete on its own, whereas "this bar is full,
+// so it's the biggest thing here" is immediately legible without
+// needing any external reference at all. The percentage gets filled in
+// by tlNormalizeGaugeBars right after render, once every bar for this
+// sheet actually exists to compare against — this only carries the raw
+// count for that pass to use.
 function tlGroupGaugeHtml(count){
   if(!count) return '';
-  const pct = Math.max(6, Math.min(100, Math.round((count / 15) * 100)));
-  return `<span class="heading-gauge" title="${count} show${count === 1 ? '' : 's'}"><span class="heading-gauge-fill" style="width:${pct}%"></span></span>`;
+  return `<span class="heading-gauge" data-count="${count}" title="${count} show${count === 1 ? '' : 's'}"><span class="heading-gauge-fill" style="width:0%"></span></span>`;
+}
+// Run once right after the cards for a sheet are actually in the DOM —
+// finds every gauge just drawn, figures out the largest count among
+// them, and sets each bar's width as a fraction of THAT, so "full bar"
+// always means "the biggest tour currently on screen" rather than some
+// arbitrary number that might rarely (or always) get reached.
+function tlNormalizeGaugeBars(){
+  const gauges = Array.from(listRoot.querySelectorAll('.heading-gauge[data-count]'));
+  if(!gauges.length) return;
+  const max = Math.max(...gauges.map(g => parseInt(g.dataset.count, 10) || 0));
+  if(!max) return;
+  gauges.forEach(g => {
+    const count = parseInt(g.dataset.count, 10) || 0;
+    const fill = g.querySelector('.heading-gauge-fill');
+    if(fill) fill.style.width = Math.max(6, Math.round((count / max) * 100)) + '%';
+  });
 }
 
 function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverride = null, extraClass = '', bulkCodeKeys = null, bulkReleaseKeys = null, groupEvents = null){
