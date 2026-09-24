@@ -461,6 +461,14 @@
     display:inline-block; vertical-align:top;
     width:calc(25% - 9px); margin:0 12px 12px 0;
     padding:10px 12px; cursor:pointer;
+    /* A tour name long enough to wrap to two lines made that one tile
+       taller than its neighbors in the same row, with nothing keeping
+       their bottom edges lined up — a real screenshot showed exactly
+       that jagged, uneven look. A consistent minimum height (generous
+       enough for a two-line title plus the gauge and summary line)
+       means a short title just leaves a little empty space below it
+       instead, which reads as tidy rather than broken. */
+    min-height:112px;
   }
   .day-heading.collapsible-heading.collapsed:hover{border-color:#4a4950;background:var(--card-hover);}
   .day-heading.collapsible-heading.collapsed .heading-icons,
@@ -9297,8 +9305,17 @@ listRoot.addEventListener('click', async e => {
     if(turningOn){
       heading.classList.add('tl-shortcut-selected');
       if(!heading.querySelector('[data-action="copy-current-link"]')){
-        const nameEl = heading.querySelector('.heading-label');
-        if(nameEl) nameEl.insertAdjacentHTML('afterend', tlCopyLinkButtonHtml());
+        // Inserted right before the icon row (always present, always
+        // last), not right after the name — a real screenshot showed
+        // exactly what inserting it straight after the name produces:
+        // "Journey · Copy Link · [gauge] · 4 shows..." with the button
+        // stuck in the middle, ahead of the gauge/summary it should
+        // come after. A normal render() builds this in the right order
+        // from scratch every time; this direct DOM insert (done
+        // specifically to skip that full render for speed) has to
+        // match that same order by hand.
+        const iconsEl = heading.querySelector('.heading-icons');
+        if(iconsEl) iconsEl.insertAdjacentHTML('beforebegin', tlCopyLinkButtonHtml());
       }
       // Copies the link the instant a group is selected — that's the
       // URL someone actually wants in hand right after selecting a
