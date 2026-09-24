@@ -459,7 +459,17 @@
      the point, no real use for them until it's actually open. */
   .day-heading.collapsible-heading.collapsed{
     display:inline-block; vertical-align:top;
-    width:calc(25% - 9px); margin:0 12px 12px 0;
+    /* 4 tiles at exactly 25% width, each ALSO carrying a 12px trailing
+       margin (including the last one in the row, since nothing
+       distinguishes it from the others here) added up to just OVER
+       100% total width — enough to push that 4th tile down to its own
+       new line instead of sharing the row with the other three,
+       leaving a visible empty gap exactly where the 4th column should
+       have been. Subtracting the full 12px of margin from the width
+       itself (not just a partial fudge factor) accounts for that
+       trailing margin properly, with a couple pixels of slack on top
+       for any rounding. */
+    width:calc(25% - 16px); margin:0 12px 12px 0;
     padding:10px 12px; cursor:pointer;
     /* A tour name long enough to wrap to two lines made that one tile
        taller than its neighbors in the same row, with nothing keeping
@@ -485,10 +495,10 @@
   }
   .day-heading.collapsible-heading.collapsed .heading-gauge{margin-bottom:4px;}
   @media (max-width:1400px){
-    .day-heading.collapsible-heading.collapsed{width:calc(33.333% - 8px);}
+    .day-heading.collapsible-heading.collapsed{width:calc(33.333% - 16px);}
   }
   @media (max-width:900px){
-    .day-heading.collapsible-heading.collapsed{width:calc(50% - 6px);}
+    .day-heading.collapsible-heading.collapsed{width:calc(50% - 16px);}
   }
   /* The heading currently "selected" for the number-key shortcuts —
      see the keydown/click handlers further down. */
@@ -4415,6 +4425,26 @@ async function pollRemote(){
 // handleCsvUpload's alert so a failure comes with the real reason
 // attached instead of a generic "didn't save."
 let lastPushError = null;
+// Every push for a sheet does a wholesale DELETE-then-INSERT of that
+// sheet's rows (see supabaseReplaceSheet) — if two pushes for the same
+// sheet ever actually ran AT THE SAME TIME (a CSV import, then Mark
+// Seen or Archive Past clicked again before that first save finished —
+// entirely realistic, not a contrived edge case), their deletes and
+// inserts could interleave: one push's DELETE landing between the
+// other's DELETE and INSERT would wipe out data the other push was
+// still in the middle of writing. pendingPushCount above only ever
+// protected against the background POLL reading mid-write — nothing
+// stopped two pushes from racing against EACH OTHER, which is exactly
+// the shape of a real report of freshly imported data vanishing the
+// moment another action triggered a second save. Chaining every push
+// onto the same promise forces them to run strictly one at a time —
+// each one sees the fully-settled result of the last before it starts.
+let pushChain = Promise.resolve();
+function queuePush(sheetName, mode, payloadEvents){
+  const result = pushChain.then(() => pushSheetEvents(sheetName, mode, payloadEvents));
+  pushChain = result.catch(() => {}); // one push failing must never jam up every push after it
+  return result;
+}
 async function pushSheetEvents(sheetName, mode, payloadEvents){
   if(!syncUrl){
     setSyncStatus('Not connected — this change was not saved.', 'error');
@@ -4446,7 +4476,7 @@ async function pushActiveSheetToRemote(){
     const ann = getAnnotation(eventKey(ev));
     return { ...ev, note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned, sections: ann.sections || [], isNew: !!ann.isNew, archived: !!ann.archived, noteHistory: ann.noteHistory || [], priceHistory: ann.priceHistory || [], extraLinks: ann.extraLinks || [] };
   });
-  return await pushSheetEvents(name, mode, payloadEvents);
+  return await queuePush(name, mode, payloadEvents);
 }
 
 // Saves an edit made to a cross-sheet search result back to the sheet it
@@ -9274,8 +9304,11 @@ listRoot.addEventListener('click', async e => {
     // the compact grid IS the "I want this one" signal all by itself —
     // there's no separate button visible on a tile that small to select
     // it with anyway — so clicking one always expands AND selects
-    // together, rather than toggling. Once expanded, it goes back to
-    // plain toggle behavior like every other heading.
+    // together, rather than toggling. Clicking an expanded/selected
+    // heading's bar again reverses BOTH at once too — deselects it AND
+    // collapses it back into the compact grid, rather than leaving it
+    // sitting there expanded-but-deselected, which was its own kind of
+    // confusing in-between state.
     //
     // Updates the DOM directly here instead of calling the normal
     // render() — a real, noticeable delay before the outline/Copy Link
@@ -9328,6 +9361,12 @@ listRoot.addEventListener('click', async e => {
       heading.classList.remove('tl-shortcut-selected');
       const btn = heading.querySelector('[data-action="copy-current-link"]');
       if(btn) btn.remove();
+      // Collapsing it back is the other half of that same reversal —
+      // only when it wasn't ALREADY the click that just expanded it a
+      // moment ago (that case already handled turningOn=true above and
+      // never reaches here).
+      collapsedSections.add(key);
+      heading.classList.add('collapsed');
     }
     // Still needed directly (not just via the class/button toggling
     // above): this is what moves the number-key badges from the
