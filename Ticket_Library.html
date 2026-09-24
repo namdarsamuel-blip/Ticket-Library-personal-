@@ -445,7 +445,43 @@
   .collapse-caret{flex:0 0 auto;opacity:.55;transition:transform .15s ease;}
   .day-heading.collapsible-heading.collapsed .collapse-caret{transform:rotate(-90deg);}
   .day-heading.collapsible-heading.collapsed + .day-grid{display:none;}
-  .day-heading.collapsible-heading.collapsed{opacity:.7;}
+  /* Collapsed tours flow into a compact multi-column grid instead of
+     one full-width bar each — inline-block wrapping does this without
+     needing to touch how the underlying HTML gets built at all: a
+     heading that ISN'T collapsed is still a normal block element,
+     which naturally breaks the inline flow and forces a new line
+     around itself, so an expanded/selected tour still gets its own
+     full-width row exactly where it sits, with any collapsed tiles
+     before and after it still flowing normally on their own lines.
+     Only the title/gauge/summary show here — the bulk-open, note,
+     history, pin and collapse buttons all tuck away (see further
+     below) since a tile this size has no room for them and, more to
+     the point, no real use for them until it's actually open. */
+  .day-heading.collapsible-heading.collapsed{
+    display:inline-block; vertical-align:top;
+    width:calc(25% - 9px); margin:0 12px 12px 0;
+    padding:10px 12px; cursor:pointer;
+  }
+  .day-heading.collapsible-heading.collapsed:hover{border-color:#4a4950;background:var(--card-hover);}
+  .day-heading.collapsible-heading.collapsed .heading-icons,
+  .day-heading.collapsible-heading.collapsed .heading-copy-link-btn,
+  .day-heading.collapsible-heading.collapsed .bulk-open-links{
+    display:none;
+  }
+  .day-heading.collapsible-heading.collapsed .heading-label{
+    display:block; white-space:normal; margin-bottom:4px;
+  }
+  .day-heading.collapsible-heading.collapsed .heading-gauge,
+  .day-heading.collapsible-heading.collapsed .heading-summary{
+    display:block; margin:0;
+  }
+  .day-heading.collapsible-heading.collapsed .heading-gauge{margin-bottom:4px;}
+  @media (max-width:1400px){
+    .day-heading.collapsible-heading.collapsed{width:calc(33.333% - 8px);}
+  }
+  @media (max-width:900px){
+    .day-heading.collapsible-heading.collapsed{width:calc(50% - 6px);}
+  }
   /* The heading currently "selected" for the number-key shortcuts —
      see the keydown/click handlers further down. */
   .day-heading.tl-shortcut-selected{outline:2px solid var(--teal, #4fc8bf);outline-offset:-2px;border-radius:6px;}
@@ -3497,7 +3533,7 @@ function tlSaveExpandCycleState(){
   try{ localStorage.setItem('tlExpandCycle_' + activeSheetName, String(expandCycleState)); }catch(e){}
 }
 function tlRestoreExpandCycleState(){
-  if(!activeSheetName) return 2;
+  if(!activeSheetName) return 0;
   try{
     const raw = localStorage.getItem('tlExpandCycle_' + activeSheetName);
     if(raw !== null){
@@ -3505,7 +3541,12 @@ function tlRestoreExpandCycleState(){
       if(n === 0 || n === 1 || n === 2) return n;
     }
   }catch(e){}
-  return 2; // default: fully expanded, same as it's always been
+  // Compact/collapsed is the default now for a sheet with no saved
+  // preference yet — scrolling past hundreds of fully expanded cards
+  // just to find a specific tour was the whole complaint this compact
+  // view exists to solve, so a brand new sheet should open INTO that
+  // view rather than requiring a manual collapse first.
+  return 0;
 }
 expandCollapseBtn.addEventListener('click', () => {
   applyExpandCycleState((expandCycleState + 1) % 3);
@@ -9221,6 +9262,13 @@ listRoot.addEventListener('click', async e => {
     // clicking an already-selected bar again turns it back off, instead
     // of needing to go select a DIFFERENT group just to get out of it.
     //
+    // A collapsed tile is a special case, though: expanding it out of
+    // the compact grid IS the "I want this one" signal all by itself —
+    // there's no separate button visible on a tile that small to select
+    // it with anyway — so clicking one always expands AND selects
+    // together, rather than toggling. Once expanded, it goes back to
+    // plain toggle behavior like every other heading.
+    //
     // Updates the DOM directly here instead of calling the normal
     // render() — a real, noticeable delay before the outline/Copy Link
     // button appeared turned out to be a full re-render of potentially
@@ -9228,7 +9276,12 @@ listRoot.addEventListener('click', async e => {
     // Nothing about which events are shown/sorted/filtered changes from
     // this click, so nothing else actually needed to be rebuilt.
     const key = heading.dataset.section;
-    const turningOn = tlSelectedGroupKey !== key;
+    const wasCollapsed = heading.classList.contains('collapsed');
+    if(wasCollapsed){
+      collapsedSections.delete(key);
+      heading.classList.remove('collapsed');
+    }
+    const turningOn = wasCollapsed ? true : tlSelectedGroupKey !== key;
     const prevKey = tlSelectedGroupKey;
     tlSelectedGroupKey = turningOn ? key : null;
     syncUrlWithState();
