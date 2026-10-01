@@ -4584,6 +4584,42 @@ async function pushActiveSheetToRemote(){
     const ann = getAnnotation(eventKey(ev));
     return { ...ev, note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned, sections: ann.sections || [], isNew: !!ann.isNew, archived: !!ann.archived, noteHistory: ann.noteHistory || [], priceHistory: ann.priceHistory || [], extraLinks: ann.extraLinks || [] };
   });
+  // A real, live bug: this app has no login, so the same sheet is
+  // routinely open in more than one tab (or device) at once, each with
+  // its own private copy of the sheet. EVERY save here replaces the
+  // WHOLE sheet with exactly whatever this tab's allEvents holds — so a
+  // tab that's fallen behind (sitting open in the background, not yet
+  // caught up on something another tab added) can save right over that
+  // other tab's work, with no error anywhere, because as far as the
+  // database is concerned this tab's request is a perfectly normal,
+  // deliberate replace. Fixed CSV imports specifically to pull fresh
+  // data first; this is the same idea applied generally, to every save
+  // of the active sheet no matter what triggered it (Mark Seen, Archive
+  // Past, a new show, anything).
+  //
+  // The fix: right before sending, check what's REALLY on the sheet
+  // right now. Any row that's for real there but wasn't part of what
+  // this tab knew about the last time it synced (remoteCache) AND isn't
+  // already in what's about to be sent — i.e., something another tab or
+  // device added in the meantime that this tab has never seen — gets
+  // folded into the payload instead of being silently erased. A row
+  // this tab deliberately removed stays removed (it WAS known before
+  // and is correctly just missing from the payload now); only a row
+  // this tab never had the chance to know about gets protected.
+  try{
+    if(syncUrl){
+      const knownBeforeKeys = new Set(remoteCache.filter(e => e.appSheet === name).map(eventKey));
+      const payloadKeys = new Set(payloadEvents.map(eventKey));
+      const freshRows = await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(name)}&select=*`);
+      const addedElsewhere = freshRows.map(supabaseRowToEvent)
+        .filter(ev => !knownBeforeKeys.has(eventKey(ev)) && !payloadKeys.has(eventKey(ev)));
+      if(addedElsewhere.length) payloadEvents.push(...addedElsewhere);
+    }
+  }catch(err){
+    // Couldn't confirm what's really there — proceed with just this
+    // tab's own payload rather than blocking the save outright, same as
+    // every other network hiccup elsewhere in this app.
+  }
   return await pushSheetEvents(name, mode, payloadEvents);
 }
 
