@@ -4323,12 +4323,28 @@ async function loadAllFromRemote(){
 // sheet's data, not just the one that just loaded), which is why it
 // moved out of the fast path above.
 async function loadRemainingEventsInBackground(){
+  // This fetch has no idea how long it'll take — it's grabbing every
+  // row across every sheet, which can take a few real seconds. A real,
+  // live bug: if a CSV import (or any other save) finished WHILE this
+  // was still in flight, this function used to barge in afterward with
+  // whatever it happened to read — a snapshot from BEFORE that
+  // import — and overwrite the screen with it, making freshly-added
+  // data vanish right after it was imported. pollRemote already guards
+  // against this exact shape of race with pendingPushCount; this
+  // background load never did, so it's the same guard here: skip
+  // outright if a push is already in flight when this starts, and skip
+  // applying the result if a push started (or is still going) by the
+  // time this slow fetch finally resolves — either way, the push's own
+  // result already brought remoteCache up to date, so there's nothing
+  // this stale read could add.
+  if(pendingPushCount > 0) return;
   let rows;
   try{
     rows = await supabaseRequest('events?select=*');
   }catch(err){
     return; // the visible sheet is unaffected — the next poll/realtime tick retries this anyway
   }
+  if(pendingPushCount > 0) return; // a push started or finished while this fetch was in flight — its result is already current, don't clobber it with this stale read
   // A real, live bug: this ran right after the fast-path load had
   // already successfully shown real data, and an occasional empty-but-
   // technically-successful response from here silently wiped it back
