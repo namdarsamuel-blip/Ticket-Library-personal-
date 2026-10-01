@@ -3551,20 +3551,28 @@ function tlSaveExpandCycleState(){
   try{ localStorage.setItem('tlExpandCycle_' + activeSheetName, String(expandCycleState)); }catch(e){}
 }
 function tlRestoreExpandCycleState(){
-  if(!activeSheetName) return 0;
+  if(!activeSheetName) return 2;
   try{
     const raw = localStorage.getItem('tlExpandCycle_' + activeSheetName);
     if(raw !== null){
       const n = parseInt(raw, 10);
-      if(n === 0 || n === 1 || n === 2) return n;
+      // A saved "0" from back when fully collapsed was the automatic
+      // default isn't a deliberate choice — it's leftover from a view
+      // nobody asked to start on, so it's not trusted here. Clearing it
+      // means the old default really goes away instead of silently
+      // sticking around for anyone who already had the page open while
+      // it was in effect. "1" (Names) is kept, since that one only ever
+      // gets set by actually clicking the cycle button.
+      if(n === 0){
+        try{ localStorage.removeItem('tlExpandCycle_' + activeSheetName); }catch(e){}
+      } else if(n === 1 || n === 2){
+        return n;
+      }
     }
   }catch(e){}
-  // Compact/collapsed is the default now for a sheet with no saved
-  // preference yet — scrolling past hundreds of fully expanded cards
-  // just to find a specific tour was the whole complaint this compact
-  // view exists to solve, so a brand new sheet should open INTO that
-  // view rather than requiring a manual collapse first.
-  return 0;
+  // Fully expanded is the default again — the old view, back from before
+  // the compact/collapsed-by-default experiment.
+  return 2;
 }
 expandCollapseBtn.addEventListener('click', () => {
   applyExpandCycleState((expandCycleState + 1) % 3);
