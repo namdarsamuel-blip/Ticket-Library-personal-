@@ -4336,15 +4336,23 @@ async function loadRemainingEventsInBackground(){
   // applying the result if a push started (or is still going) by the
   // time this slow fetch finally resolves — either way, the push's own
   // result already brought remoteCache up to date, so there's nothing
-  // this stale read could add.
+  // this stale read could add. Checking pendingPushCount alone isn't
+  // airtight though — a push that starts AND finishes entirely during
+  // the fetch below leaves pendingPushCount back at 0 by the time this
+  // checks again, even though the fetch's response was captured before
+  // that push's write landed (classic check-then-act gap). dataVersion
+  // closes that: it moves the instant any push starts, so comparing it
+  // before and after catches a push that came and went in between, not
+  // just one still running at the exact instants checked.
   if(pendingPushCount > 0) return;
+  const versionAtStart = dataVersion;
   let rows;
   try{
     rows = await supabaseRequest('events?select=*');
   }catch(err){
     return; // the visible sheet is unaffected — the next poll/realtime tick retries this anyway
   }
-  if(pendingPushCount > 0) return; // a push started or finished while this fetch was in flight — its result is already current, don't clobber it with this stale read
+  if(pendingPushCount > 0 || dataVersion !== versionAtStart) return; // a push started (and maybe even finished) while this fetch was in flight — its result is already current, don't clobber it with this stale read
   // A real, live bug: this ran right after the fast-path load had
   // already successfully shown real data, and an occasional empty-but-
   // technically-successful response from here silently wiped it back
@@ -4386,6 +4394,24 @@ async function loadRemainingEventsInBackground(){
 // "didn't register" until the next poll catches up. Pausing polling for
 // the duration of any push closes that window entirely.
 let pendingPushCount = 0;
+// A real, live bug: checking "is a push in flight right now" at the
+// start AND end of a background fetch isn't actually enough — a fetch
+// that was ALREADY in flight when a push both started and fully
+// finished sees pendingPushCount back at 0 by the time it checks again,
+// even though its own response was captured from the server before
+// that push's write landed. That's a classic check-then-act gap, and
+// it's exactly what made a CSV import "appear then disappear": a
+// slightly-earlier background read straddled the import's write and
+// then won the race, overwriting the just-imported data with its own
+// stale snapshot despite every pendingPushCount check along the way
+// reading clean. Every push bumps this counter the instant it starts
+// (see pushSheetEvents); a background fetch records the value when IT
+// starts and only trusts its own result if the value hasn't moved by
+// the time it's ready to apply it — if a push began at any point while
+// the fetch was in flight, that push's own result is newer and this
+// fetch's is discarded instead, no matter which one's network request
+// happened to finish first.
+let dataVersion = 0;
 
 // Background poll: re-fetches everything and re-derives sheets + the
 // active sheet's data from scratch, since the Sheet is the sole source of
@@ -4395,6 +4421,7 @@ let pendingPushCount = 0;
 // cached in remoteCache and will show on the next render either way.
 async function pollRemote(){
   if(!syncUrl || pendingPushCount > 0) return;
+  const versionAtStart = dataVersion;
   let data;
   try{
     data = await supabaseFetchAll();
@@ -4403,7 +4430,14 @@ async function pollRemote(){
     return;
   }
   if(!data || !Array.isArray(data.events)) return;
-  if(pendingPushCount > 0) return; // a push started while this fetch was in flight
+  // Not just "is a push running right now" — a push that started AND
+  // finished entirely while the fetch above was in flight would leave
+  // pendingPushCount back at 0 here too, yet this fetch's data was still
+  // captured before that push's write. dataVersion catches that case:
+  // it moves the instant ANY push starts, so if it's different now from
+  // when this fetch began, a push happened during the wait and its own
+  // result already supersedes this one.
+  if(pendingPushCount > 0 || dataVersion !== versionAtStart) return;
   // A poll coming back with drastically less data than already loaded
   // is far more likely a transient hiccup (a brief connection issue,
   // an occasional empty-but-technically-successful response from the
@@ -4475,6 +4509,7 @@ async function pushSheetEvents(sheetName, mode, payloadEvents){
     return false;
   }
   pendingPushCount++;
+  dataVersion++; // any in-flight background read started before this point is now stale, however its own timing works out
   try{
     const data = await supabaseReplaceSheet(sheetName, mode, payloadEvents);
     if(data && Array.isArray(data.events)) remoteCache = data.events;
