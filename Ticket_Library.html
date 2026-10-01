@@ -1820,8 +1820,15 @@
        text for no reason. It only ever needs to be as tall as its own
        text here, not fill the card. */
     .ticket-info{flex:0 0 auto;}
-    .ticket-actions{flex-direction:row;flex-wrap:wrap;min-width:0;}
-    .link-row{flex:1 1 auto;min-width:0;}
+    /* Link buttons stay a plain vertical stack, full card width, same
+       as every other card — a real, live complaint was this wrapping
+       into a row instead (flex-direction:row;flex-wrap:wrap used to be
+       here), which let a short label like "AXS" end up squeezed onto
+       the same line as "VividSeats" rather than each button getting its
+       own full-width row. Only the title/venue moves above the actions
+       at this width (ticket-main, above) — the actions themselves keep
+       their normal column layout. */
+    .ticket-actions{flex-direction:column;min-width:0;}
     .shift-block-main{flex-direction:column;align-items:stretch;}
   }
 
@@ -3979,12 +3986,40 @@ async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
       body: JSON.stringify(payloadEvents.map(ev => eventToSupabaseRow(ev, sheetName, sheetMode)))
     });
   }
+  // Used to build the returned {events, sheets} by hand from remoteCache
+  // (remoteCache minus this sheet's old rows, plus the new ones) instead
+  // of asking the database again. The catch: that only comes out right
+  // if remoteCache already held a true, complete mirror of THIS sheet's
+  // data at the moment this ran. It doesn't always — the app's own
+  // fast-start loading only fetches the ACTIVE sheet up front and fills
+  // in every other sheet in the background afterward (see
+  // loadRemainingEventsInBackground), so there's a real window right
+  // after opening the app where remoteCache doesn't yet have every
+  // sheet's rows. A save landing inside that window built its
+  // "authoritative" result from an incomplete local guess, and every
+  // read anywhere else in the app trusted that guess completely — a
+  // quiet case of a save looking like it partly failed with nothing
+  // actually wrong on the server.
+  //
+  // The fix only needs to make the SHEET THIS SAVE JUST TOUCHED
+  // authoritative — nothing else changed, so there's no reason to doubt
+  // what remoteCache already has for every other sheet, and no reason
+  // to pay for re-reading the whole app's data on every single save. A
+  // scoped re-fetch (same shape the app's own fast-start load already
+  // uses for one sheet) gets the same correctness as a full re-read —
+  // this sheet's rows are never guessed, always read straight back from
+  // the database right after writing them — at a cost that stays flat
+  // no matter how large every OTHER sheet gets.
+  const [sheetsRows, freshRowsForThisSheet] = await Promise.all([
+    supabaseRequest('sheets?select=*&order=sort_order.asc'),
+    supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}&select=*`)
+  ]);
   const events = remoteCache.filter(e => e.appSheet !== sheetName)
-    .concat(payloadEvents.map(ev => ({ ...ev, appSheet: sheetName, sheetMode })));
-  const sheetsList = remoteSheetsList.some(s => s.name === sheetName)
-    ? remoteSheetsList
-    : remoteSheetsList.concat([{ name: sheetName, mode: sheetMode }]);
-  return { events, sheets: sheetsList };
+    .concat(freshRowsForThisSheet.map(supabaseRowToEvent));
+  return {
+    sheets: sheetsRows.map(s => ({ name: s.name, mode: s.mode })),
+    events
+  };
 }
 
 async function supabaseDeleteSheet(name){
@@ -4497,13 +4532,27 @@ let lastPushError = null;
 // moment another action triggered a second save. Chaining every push
 // onto the same promise forces them to run strictly one at a time —
 // each one sees the fully-settled result of the last before it starts.
+//
+// This chain used to only be reachable through queuePush(), called
+// solely from pushActiveSheetToRemote() — but plenty of OTHER actions
+// (moving/copying an event to another sheet, editing a card found via
+// cross-sheet search, trash/history writes) call pushSheetEvents
+// directly, completely bypassing the chain. Any one of those landing on
+// the SAME sheet name at the same moment as an active-sheet save (CSV
+// import included) was exactly the unprotected race this was meant to
+// close — it just didn't close it for every door into the house, only
+// the front one. Folding the queue into pushSheetEvents itself, so
+// EVERY call goes through it no matter which function made it, is what
+// actually guarantees two writes to the same sheet can never interleave
+// again, instead of relying on every future call site remembering to
+// opt in.
 let pushChain = Promise.resolve();
-function queuePush(sheetName, mode, payloadEvents){
-  const result = pushChain.then(() => pushSheetEvents(sheetName, mode, payloadEvents));
+function pushSheetEvents(sheetName, mode, payloadEvents){
+  const result = pushChain.then(() => pushSheetEventsNow(sheetName, mode, payloadEvents));
   pushChain = result.catch(() => {}); // one push failing must never jam up every push after it
   return result;
 }
-async function pushSheetEvents(sheetName, mode, payloadEvents){
+async function pushSheetEventsNow(sheetName, mode, payloadEvents){
   if(!syncUrl){
     setSyncStatus('Not connected — this change was not saved.', 'error');
     return false;
@@ -4535,7 +4584,7 @@ async function pushActiveSheetToRemote(){
     const ann = getAnnotation(eventKey(ev));
     return { ...ev, note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned, sections: ann.sections || [], isNew: !!ann.isNew, archived: !!ann.archived, noteHistory: ann.noteHistory || [], priceHistory: ann.priceHistory || [], extraLinks: ann.extraLinks || [] };
   });
-  return await queuePush(name, mode, payloadEvents);
+  return await pushSheetEvents(name, mode, payloadEvents);
 }
 
 // Saves an edit made to a cross-sheet search result back to the sheet it
