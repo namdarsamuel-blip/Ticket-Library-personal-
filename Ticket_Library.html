@@ -3952,40 +3952,40 @@ async function supabaseUpdateEventById(id, patch){
 }
 
 async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
-  // Always ensures the sheet's OWN row exists before touching its
-  // events — this used to be skipped as a speed optimization whenever
-  // the sheet looked "already known" locally, but that local tracking
-  // had more than one gap: more than one code path can add an entry to
-  // the local `sheets` array without it ever having actually reached
-  // the database (a brand-new sheet added the instant it's created, or
-  // a fallback "Sheet 1" created locally on a connection hiccup) — hit
-  // TWICE now by the exact same foreign-key failure as a direct
-  // result. Prefer:resolution=merge-duplicates makes this call a true
-  // upsert, so doing it unconditionally is safe regardless of which of
-  // those paths created the sheet, or whether it's tracked correctly —
-  // it never overwrites anything wrong on a sheet that already exists,
-  // since sort_order (the only thing that COULD clobber something real)
-  // is only ever included when this sheet isn't already known locally.
-  const isKnownLocally = sheets.some(s => s.name === sheetName);
-  const sheetRow = { name: sheetName, mode: sheetMode };
-  if(!isKnownLocally){
-    const maxRows = await supabaseRequest('sheets?select=sort_order&order=sort_order.desc&limit=1');
-    sheetRow.sort_order = (maxRows && maxRows.length ? maxRows[0].sort_order : -1) + 1;
-  }
-  await supabaseRequest('sheets', {
+  // This used to be a DELETE request followed by a separate INSERT
+  // request — two independent round trips to the server. The real,
+  // live problem with that: the network doesn't know those two calls
+  // belong together. Anything interrupting the connection in the gap
+  // between them (a dropped wifi signal, the tab getting backgrounded/
+  // throttled by the browser, closing the tab a moment too early) left
+  // the DELETE fully committed and the INSERT never sent — the sheet's
+  // old rows gone, the new ones never arriving, and nothing anywhere
+  // reporting an error, because the DELETE itself genuinely did
+  // succeed. That's real, permanent loss sitting in the gap BETWEEN two
+  // requests — not a timing bug in this app's own JavaScript, so no
+  // amount of serializing/guarding saves against EACH OTHER (see the
+  // pushChain and dataVersion machinery below) could ever have closed
+  // it; the gap was in the network, not in this code.
+  //
+  // One request instead: a Postgres function (see supabase_atomic_
+  // replace.sql) that does the upsert-sheet-row, delete-old-events,
+  // insert-new-events sequence as a single database TRANSACTION,
+  // reached through Supabase's RPC endpoint. A transaction either
+  // commits completely or not at all — there is no partial state for a
+  // dropped connection to land in. If this request doesn't make it
+  // through, the OLD data is simply still there untouched, exactly as
+  // if nothing was attempted — never a sheet left empty with its
+  // replacement missing.
+  await supabaseRequest('rpc/replace_sheet_events', {
     method: 'POST',
-    headers: { 'Prefer': 'resolution=merge-duplicates' },
-    body: JSON.stringify(sheetRow)
+    body: JSON.stringify({
+      p_sheet_name: sheetName,
+      p_sheet_mode: sheetMode,
+      p_events: payloadEvents.map(ev => eventToSupabaseRow(ev, sheetName, sheetMode))
+    })
   });
   pendingEmptySheets = pendingEmptySheets.filter(p => p.name !== sheetName);
 
-  await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}`, { method: 'DELETE' });
-  if(payloadEvents.length){
-    await supabaseRequest('events', {
-      method: 'POST',
-      body: JSON.stringify(payloadEvents.map(ev => eventToSupabaseRow(ev, sheetName, sheetMode)))
-    });
-  }
   // Used to build the returned {events, sheets} by hand from remoteCache
   // (remoteCache minus this sheet's old rows, plus the new ones) instead
   // of asking the database again. The catch: that only comes out right
