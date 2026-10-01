@@ -5386,6 +5386,49 @@ async function handleCsvUpload(file, text){
     return;
   }
   pushUndo();
+  // A real, live bug: this used to merge the CSV straight into whatever
+  // `allEvents` already held in THIS tab's memory. That's fine with one
+  // tab open — but this app has no login, so the same sheet is often
+  // open in more than one tab (or more than one device) at once, each
+  // with its own private, possibly-stale copy of the sheet. If this tab
+  // had been sitting open for a while, its `allEvents` could already be
+  // behind whatever's actually on the server — and a save always
+  // replaces the WHOLE sheet with whatever this tab merges together, so
+  // importing against a stale base meant writing that staleness right
+  // back over the real, current data (including changes another tab
+  // made moments earlier). That's exactly what made an import look like
+  // it saved and then vanished: a second tab, still holding the old
+  // picture, doing any save of its own after this one.
+  //
+  // Re-fetching the sheet's TRUE current rows right before merging —
+  // instead of trusting this tab's possibly-stale in-memory copy —
+  // closes that: whatever gets saved is always built on top of what's
+  // REALLY there right now, not on however old this particular tab's
+  // last load happened to be.
+  let baseEvents = allEvents, baseAnnotations = annotations;
+  try{
+    if(syncUrl && activeSheetName){
+      const freshRows = await supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(activeSheetName)}&select=*`);
+      const built = buildEventsAndAnnotations(freshRows.map(supabaseRowToEvent));
+      baseEvents = built.events;
+      // Carries forward any edit THIS tab made moments ago that might
+      // not have reached the server yet (a note still mid-save) by
+      // preferring this tab's own version for a key both sides have —
+      // but only for keys the fresh read still recognizes, so a stale
+      // leftover key unique to this tab's old picture can't sneak back
+      // in underneath it.
+      baseAnnotations = built.annotationsMap;
+      Object.keys(annotations).forEach(key => {
+        if(baseAnnotations.hasOwnProperty(key)) baseAnnotations[key] = annotations[key];
+      });
+    }
+  }catch(err){
+    // Couldn't confirm what's really there — safer to fall back to this
+    // tab's own copy than to block the import outright, same as every
+    // other network hiccup elsewhere in this app.
+  }
+  allEvents = baseEvents;
+  annotations = baseAnnotations;
   const existingKeys = new Set(allEvents.map(eventKey));
   // "What to go for" columns (seen in presale trackers) seed the note on
   // first import — that's exactly the kind of thing that belongs in
