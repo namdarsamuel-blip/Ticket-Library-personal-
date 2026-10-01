@@ -4022,6 +4022,52 @@ async function supabaseReplaceSheet(sheetName, sheetMode, payloadEvents){
   };
 }
 
+// A real, live bug even AFTER the fix above: "replace the whole sheet
+// with exactly this list" is the wrong shape for a CSV import
+// specifically, because it still needs to read "what's here now" in
+// JavaScript before it can build that full list — and if two tabs
+// each did that read-then-write within a few milliseconds of each
+// other (two people importing at close to the same moment is
+// completely realistic, not contrived — confirmed directly with two
+// tabs importing different CSVs at the same instant), each one reads
+// before the other's write lands, then each writes back its OWN
+// "whole sheet" a moment apart — the later write wins and silently
+// drops whatever the earlier one had just added. No amount of
+// reconciling in JavaScript closes that fully, because the gap is
+// between a read and a later write, done as two separate steps, no
+// matter how short.
+//
+// A CSV import never actually needs "replace everything" — it only
+// ever adds brand-new rows or refreshes specific existing ones by
+// their ticket link. merge_sheet_events (see supabase_merge_events.sql)
+// does exactly that, entirely inside the database as one transaction,
+// with no read-then-write gap on the client at all: it's handed just
+// the rows this import touches, and for each one it updates the
+// matching row by key or inserts it as new — never touching, let alone
+// deleting, anything else already on the sheet. Two of these for the
+// same sheet at once simply both apply.
+async function supabaseMergeSheet(sheetName, sheetMode, upsertEvents){
+  await supabaseRequest('rpc/merge_sheet_events', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_sheet_name: sheetName,
+      p_sheet_mode: sheetMode,
+      p_events: upsertEvents.map(ev => eventToSupabaseRow(ev, sheetName, sheetMode))
+    })
+  });
+  pendingEmptySheets = pendingEmptySheets.filter(p => p.name !== sheetName);
+  const [sheetsRows, freshRowsForThisSheet] = await Promise.all([
+    supabaseRequest('sheets?select=*&order=sort_order.asc'),
+    supabaseRequest(`events?app_sheet=eq.${encodeURIComponent(sheetName)}&select=*`)
+  ]);
+  const events = remoteCache.filter(e => e.appSheet !== sheetName)
+    .concat(freshRowsForThisSheet.map(supabaseRowToEvent));
+  return {
+    sheets: sheetsRows.map(s => ({ name: s.name, mode: s.mode })),
+    events
+  };
+}
+
 async function supabaseDeleteSheet(name){
   await supabaseRequest(`sheets?name=eq.${encodeURIComponent(name)}`, { method: 'DELETE' }); // cascades to that sheet's events
   return {
@@ -4592,6 +4638,43 @@ async function pushSheetEventsNow(sheetName, mode, payloadEvents){
     return true;
   }catch(err){
     console.error('[Ticket Library] save failed:', err);
+    lastPushError = (err && err.message) ? err.message : String(err);
+    setSyncStatus('Save failed — check your connection and try again.', 'error');
+    return false;
+  }finally{
+    pendingPushCount = Math.max(0, pendingPushCount - 1);
+  }
+}
+
+// Same queueing/status/broadcast plumbing as pushSheetEvents above, but
+// for the additive merge path (see supabaseMergeSheet) instead of a
+// full-sheet replace — used by CSV imports specifically, so an import
+// can never race another save into deleting data (there's nothing to
+// delete in this path at all).
+function pushMergeSheetEvents(sheetName, mode, upsertEvents){
+  const result = pushChain.then(() => pushMergeSheetEventsNow(sheetName, mode, upsertEvents));
+  pushChain = result.catch(() => {});
+  return result;
+}
+async function pushMergeSheetEventsNow(sheetName, mode, upsertEvents){
+  if(!syncUrl){
+    setSyncStatus('Not connected — this change was not saved.', 'error');
+    return false;
+  }
+  pendingPushCount++;
+  dataVersion++;
+  try{
+    const data = await supabaseMergeSheet(sheetName, mode, upsertEvents);
+    if(data && Array.isArray(data.events)) remoteCache = data.events;
+    if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
+    setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
+    lastPushError = null;
+    if(tlRealtimeChannel){
+      tlRealtimeChannel.send({ type: 'broadcast', event: 'sheet_changed', payload: { sheetName } }).catch(() => {});
+    }
+    return true;
+  }catch(err){
+    console.error('[Ticket Library] merge save failed:', err);
     lastPushError = (err && err.message) ? err.message : String(err);
     setSyncStatus('Save failed — check your connection and try again.', 'error');
     return false;
@@ -5523,7 +5606,21 @@ async function handleCsvUpload(file, text){
     const key = eventKey(ev);
     getAnnotation(key).isNew = !existingKeys.has(key);
   });
-  const saved = await saveEventsToActiveSheet(merged);
+  allEvents = merged;
+  metaLine.textContent = `${allEvents.length} events · live from Supabase`;
+  render();
+  // Saved as an ADDITIVE merge (just the rows this CSV touches), not a
+  // full-sheet replace — see supabaseMergeSheet's own comment for why:
+  // a replace has to read the whole sheet before it can write it back,
+  // and that read-then-write gap is exactly what let two close-together
+  // imports erase each other. A merge never reads the rest of the sheet
+  // at all, so there's nothing for it to race against.
+  const mode = activeSheetMode();
+  const upsertRows = records.map(r => {
+    const ann = getAnnotation(eventKey(r));
+    return { ...r, note: ann.note || '', rating: ann.rating || 0, pinned: !!ann.pinned, sections: ann.sections || [], isNew: !!ann.isNew, archived: !!ann.archived, noteHistory: ann.noteHistory || [], priceHistory: ann.priceHistory || [], extraLinks: ann.extraLinks || [] };
+  });
+  const saved = await pushMergeSheetEvents(activeSheetName, mode, upsertRows);
   // A failed save here used to be entirely silent — no visible status
   // text exists anywhere in this app anymore (see setSyncStatus's own
   // comment), so a save that failed for ANY reason (a bad connection,
