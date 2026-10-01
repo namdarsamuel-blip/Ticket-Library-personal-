@@ -4107,6 +4107,21 @@ function startRealtimeSync(){
           tlRenderLastKeyBadge(msg.payload.value);
         }
       })
+      // Same reasoning as last_key_update above, applied to the actual
+      // sheet data — a real, live complaint was that a CSV import in
+      // one tab didn't show up in another tab instantly the way the
+      // "Last: —" badge does. postgres_changes (right above) is only
+      // ever a notice that SOMETHING changed on the events/sheets
+      // tables — it still kicks off a fresh fetch from here (via
+      // scheduleRealtimeRefresh), and that round trip, plus whatever
+      // reliability gap already affected the badge over this same
+      // mechanism, is exactly the gap between "it'll show up eventually
+      // within 20 seconds" and "it's just there instantly, like the
+      // badge." Every successful save now also fires one of these
+      // broadcasts (see pushSheetEventsNow) the instant it finishes —
+      // every other open tab reacts immediately, without waiting on
+      // postgres_changes or the periodic poll timer at all.
+      .on('broadcast', { event: 'sheet_changed' }, () => { pollRemote(); })
       .subscribe();
   }catch(err){
     console.warn('[Ticket Library] Realtime subscription failed to start — falling back to periodic polling only.', err);
@@ -4565,6 +4580,15 @@ async function pushSheetEventsNow(sheetName, mode, payloadEvents){
     if(data && Array.isArray(data.sheets)) remoteSheetsList = data.sheets;
     setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, 'ok');
     lastPushError = null;
+    // Tells every OTHER open tab to refresh right now, the instant this
+    // save finishes — the same broadcast approach already proven
+    // reliable for the "Last: —" badge, now covering real sheet data
+    // too (see the sheet_changed listener in startRealtimeSync). This
+    // tab already has the result in remoteCache above; it's everyone
+    // ELSE still holding an older picture who needs the nudge.
+    if(tlRealtimeChannel){
+      tlRealtimeChannel.send({ type: 'broadcast', event: 'sheet_changed', payload: { sheetName } }).catch(() => {});
+    }
     return true;
   }catch(err){
     console.error('[Ticket Library] save failed:', err);
