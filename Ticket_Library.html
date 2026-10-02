@@ -33,7 +33,17 @@
     --price-chip-border:rgba(52,211,153,.4);
     --price-chip-label:#9fcbb4;
     --price-chip-value:#4ade80;
+    /* How many collapsed-tile columns fit per row at this viewport width
+       — mirrors the three width tiers collapsed tiles already use below
+       (4 / 3 / 2), but as a variable so a short run of collapsed tiles
+       (surrounded by expanded ones, which force it to end early) can
+       size itself against "how many columns actually fit" instead of
+       always assuming 4 and leaving a half-empty row. See
+       tlNormalizeCollapsedRuns(). */
+    --collapsed-cols:4;
   }
+  @media (max-width:1400px){ :root{ --collapsed-cols:3; } }
+  @media (max-width:900px){ :root{ --collapsed-cols:2; } }
   /* ---------- Card density scaling ----------
      At high column counts, cards get too narrow for full-size text/controls
      to fit without wrapping or growing taller — this scales font sizes,
@@ -413,8 +423,27 @@
      substantially from the first pass at this — a bar that's supposed
      to be readable at a glance while scrolling isn't much good at a
      couple pixels tall. */
-  .heading-gauge{display:inline-block;width:100px;height:18px;background:rgba(255,255,255,.16);border-radius:6px;overflow:hidden;vertical-align:middle;margin-right:8px;border:1px solid rgba(255,255,255,.08);}
-  .heading-gauge-fill{display:block;height:100%;background:var(--amber);border-radius:6px 0 0 6px;}
+  /* The collapsed tile's leftover space below a short title used to just
+     sit empty. This fills it from the bottom up, in proportion to how
+     many shows this tour has relative to the biggest one currently on
+     screen — the same "biggest = full" scaling the inline gauge used to
+     use, just spent on space that was otherwise wasted instead of its
+     own dedicated row. Negative z-index (the tile itself is the nearest
+     positioned ancestor, see .collapsed) keeps it behind the title/date
+     text rather than painted over it; pointer-events:none keeps it out
+     of the way of the tile's own click-to-expand. Height is set in
+     pixels by tlNormalizeGaugeBars once the tile's real height is known
+     — percentages don't work here since the tile's height comes from
+     min-height/content, not a fixed value a percentage could resolve
+     against. */
+  .heading-fill{
+    display:none;
+    position:absolute;left:0;right:0;bottom:0;z-index:-1;
+    background:linear-gradient(to top, rgba(79,200,191,.5), rgba(79,200,191,.08));
+    border-top:1px solid rgba(79,200,191,.4);
+    pointer-events:none;
+  }
+  .day-heading.collapsible-heading.collapsed .heading-fill{display:block;}
   /* Heading-row icon buttons (pin, collapse, note, history) sized up
      from the compact per-card buttons elsewhere — this row has real
      room to spare, and "bigger, rounder, easier to click and see" was
@@ -459,18 +488,31 @@
      the point, no real use for them until it's actually open. */
   .day-heading.collapsible-heading.collapsed{
     display:inline-block; vertical-align:top;
-    /* 4 tiles at exactly 25% width, each ALSO carrying a 12px trailing
-       margin (including the last one in the row, since nothing
-       distinguishes it from the others here) added up to just OVER
-       100% total width — enough to push that 4th tile down to its own
-       new line instead of sharing the row with the other three,
-       leaving a visible empty gap exactly where the 4th column should
-       have been. Subtracting the full 12px of margin from the width
-       itself (not just a partial fudge factor) accounts for that
-       trailing margin properly, with a couple pixels of slack on top
-       for any rounding. */
-    width:calc(25% - 16px); margin:0 12px 12px 0;
+    /* Normally 4 tiles per row (or fewer on a narrower screen — see
+       --collapsed-cols). But a run of collapsed tiles that's immediately
+       boxed in by an expanded section above and/or below it (so it never
+       reaches a full row of 4) used to size itself as if it HAD 4
+       neighbors anyway, leaving the rest of that row empty — a single
+       collapsed tile between two expanded ones looked like a chunk was
+       missing. tlNormalizeCollapsedRuns() sets --run-count on each tile
+       to the length of its own uninterrupted run, so a lone tile fills
+       the whole row, a pair splits it in half, and so on — while a run
+       of 4+ is clamped back to the normal column count via min(). Each
+       tile also carries a 12px trailing margin (even the last one in a
+       row, since nothing distinguishes it here), which pushes the total
+       just over 100% and is exactly what forces the row to wrap where it
+       should — so the full margin (not a partial fudge) is subtracted
+       from the width itself, with a little slack for rounding. */
+    width:calc(100% / min(var(--run-count, 4), var(--collapsed-cols, 4)) - 16px);
+    margin:0 12px 12px 0;
     padding:10px 12px; cursor:pointer;
+    /* z-index:0 (not just position:relative) is what actually makes
+       this its own local stacking context — without it, the fill bar's
+       z-index:-1 below doesn't stay scoped underneath just THIS card;
+       it gets compared against the whole page's stacking order instead
+       and ends up buried under every other card and section, rendering
+       as if it were simply invisible. */
+    position:relative; z-index:0; overflow:hidden;
     /* A tour name long enough to wrap to two lines made that one tile
        taller than its neighbors in the same row, with nothing keeping
        their bottom edges lined up — a real screenshot showed exactly
@@ -489,16 +531,8 @@
   .day-heading.collapsible-heading.collapsed .heading-label{
     display:block; white-space:normal; margin-bottom:4px;
   }
-  .day-heading.collapsible-heading.collapsed .heading-gauge,
   .day-heading.collapsible-heading.collapsed .heading-summary{
     display:block; margin:0;
-  }
-  .day-heading.collapsible-heading.collapsed .heading-gauge{margin-bottom:4px;}
-  @media (max-width:1400px){
-    .day-heading.collapsible-heading.collapsed{width:calc(33.333% - 16px);}
-  }
-  @media (max-width:900px){
-    .day-heading.collapsible-heading.collapsed{width:calc(50% - 16px);}
   }
   /* The heading currently "selected" for the number-key shortcuts —
      see the keydown/click handlers further down. */
@@ -6804,6 +6838,10 @@ function render(){
   // next to it — they need every heading for this render to already be
   // in the DOM before they can be measured against each other.
   requestAnimationFrame(tlMarkSelectedGroupInDom);
+  // Run-width sizing first, so a tile whose width (and therefore text
+  // wrapping/height) changes because it's in a short run is already at
+  // its final size before the fill bar below measures that height.
+  requestAnimationFrame(tlNormalizeCollapsedRuns);
   requestAnimationFrame(tlNormalizeGaugeBars);
   if(historyViewActive){
     updateModeUI();
@@ -9175,22 +9213,62 @@ function tlGroupSummaryText(events){
 // count for that pass to use.
 function tlGroupGaugeHtml(count){
   if(!count) return '';
-  return `<span class="heading-gauge" data-count="${count}" title="${count} show${count === 1 ? '' : 's'}"><span class="heading-gauge-fill" style="width:0%"></span></span>`;
+  return `<span class="heading-fill" data-count="${count}" title="${count} show${count === 1 ? '' : 's'}" style="height:0px"></span>`;
 }
 // Run once right after the cards for a sheet are actually in the DOM —
-// finds every gauge just drawn, figures out the largest count among
-// them, and sets each bar's width as a fraction of THAT, so "full bar"
-// always means "the biggest tour currently on screen" rather than some
-// arbitrary number that might rarely (or always) get reached.
+// finds every collapsed tile's fill just drawn, figures out the largest
+// count among them, and sets each one's height as that same fraction of
+// its OWN tile's actual height (not a shared percentage — see .heading-
+// fill — a tile's height comes from min-height/content, which a CSS
+// percentage can't resolve against, so this reads the real pixel height
+// instead now that the tile is actually in the DOM and laid out). So
+// "full tile" always means "the biggest tour currently on screen," not
+// some arbitrary reference count.
 function tlNormalizeGaugeBars(){
-  const gauges = Array.from(listRoot.querySelectorAll('.heading-gauge[data-count]'));
-  if(!gauges.length) return;
-  const max = Math.max(...gauges.map(g => parseInt(g.dataset.count, 10) || 0));
+  const fills = Array.from(listRoot.querySelectorAll('.heading-fill[data-count]'));
+  if(!fills.length) return;
+  const max = Math.max(...fills.map(f => parseInt(f.dataset.count, 10) || 0));
   if(!max) return;
-  gauges.forEach(g => {
-    const count = parseInt(g.dataset.count, 10) || 0;
-    const fill = g.querySelector('.heading-gauge-fill');
-    if(fill) fill.style.width = Math.max(6, Math.round((count / max) * 100)) + '%';
+  fills.forEach(f => {
+    const count = parseInt(f.dataset.count, 10) || 0;
+    const tile = f.closest('.day-heading');
+    const avail = tile ? tile.clientHeight : 0;
+    if(!avail) return;
+    f.style.height = Math.max(6, Math.round((count / max) * avail)) + 'px';
+  });
+}
+// A collapsed tile only knows its OWN size (25% by default) — it has no
+// way to tell, on its own, whether it's one of a full row of neighbors
+// or the only collapsed tile wedged between two expanded sections. The
+// latter used to still claim just 25% width and leave the rest of that
+// row sitting empty, which read as a chunk of the page gone missing
+// rather than a deliberate layout. This finds every run of consecutive
+// collapsed tiles — consecutive among actual .day-heading siblings
+// under the same parent, so an expanded section (or the edge of its own
+// group, e.g. inside a by-artist or by-hour nesting) correctly breaks a
+// run — and tells each tile in that run how many it's actually sharing
+// a row with via --run-count, which the CSS width formula (see
+// .collapsed) uses together with --collapsed-cols (today's column count
+// for this viewport) to size a short run to actually fill the row.
+function tlNormalizeCollapsedRuns(){
+  const allHeadings = Array.from(listRoot.querySelectorAll('.day-heading.collapsible-heading'));
+  const byParent = new Map();
+  allHeadings.forEach(h => {
+    const parent = h.parentElement;
+    if(!parent) return;
+    if(!byParent.has(parent)) byParent.set(parent, []);
+    byParent.get(parent).push(h);
+  });
+  byParent.forEach(siblingHeadings => {
+    let i = 0;
+    while(i < siblingHeadings.length){
+      if(!siblingHeadings[i].classList.contains('collapsed')){ i++; continue; }
+      let j = i;
+      while(j < siblingHeadings.length && siblingHeadings[j].classList.contains('collapsed')) j++;
+      const runLength = j - i;
+      for(let k = i; k < j; k++) siblingHeadings[k].style.setProperty('--run-count', runLength);
+      i = j;
+    }
   });
 }
 
@@ -9277,8 +9355,15 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
   </button>`;
   const summaryText = tlGroupSummaryText(groupEvents);
   const groupSummary = summaryText ? `<span class="heading-summary">${escapeHtml(summaryText)}</span>` : '';
+  // Always emitted (not just when collapsed right now) because
+  // collapsing/expanding toggles the 'collapsed' class directly on this
+  // existing DOM node rather than re-rendering it (see the collapse
+  // button above) — CSS alone (.collapsed .heading-fill) is what
+  // actually decides whether it's visible, so the element needs to
+  // already be there for that toggle to have anything to show.
+  const fillHtml = groupEvents ? tlGroupGaugeHtml(groupEvents.length) : '';
   return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''} ${isShortcutSelected ? 'tl-shortcut-selected' : ''}" data-section="${escapeHtml(key)}">
-    <span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${groupSummary}${extraHtml}${copyLinkBtn}
+    ${fillHtml}<span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${groupSummary}${extraHtml}${copyLinkBtn}
     <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${pinBtn}${collapseBtn}</div>
   </div>${tourNotePreview}`;
 }
@@ -9464,6 +9549,14 @@ listRoot.addEventListener('click', async e => {
     else collapsedSections.add(key);
     if(headingEl) headingEl.classList.toggle('collapsed');
     updateExpandCollapseBtnLabel();
+    // This toggle is a lightweight class flip on the existing node, not
+    // a full render() — so the run-width/fill-height math that only
+    // otherwise runs right after render() needs to be redone here too,
+    // since collapsing/expanding this one tile can change which run its
+    // neighbors now belong to (a tile next to it may now be alone, or
+    // newly joined into a bigger run).
+    requestAnimationFrame(tlNormalizeCollapsedRuns);
+    requestAnimationFrame(tlNormalizeGaugeBars);
     return;
   }
 
@@ -9680,6 +9773,11 @@ listRoot.addEventListener('click', async e => {
     // previous group's cards onto the new one's, in that same
     // lightweight, targeted way rather than a full render().
     tlMarkSelectedGroupInDom();
+    // Same reasoning as the dedicated collapse button: this toggled
+    // 'collapsed' directly on the DOM without a full render(), so the
+    // run-width/fill-height math needs re-running by hand too.
+    requestAnimationFrame(tlNormalizeCollapsedRuns);
+    requestAnimationFrame(tlNormalizeGaugeBars);
     return;
   }
 
@@ -9715,6 +9813,8 @@ listRoot.addEventListener('click', async e => {
       if(target.classList.contains('collapsed')){
         collapsedSections.delete(target.dataset.section);
         target.classList.remove('collapsed');
+        requestAnimationFrame(tlNormalizeCollapsedRuns);
+        requestAnimationFrame(tlNormalizeGaugeBars);
       }
       target.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
