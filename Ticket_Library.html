@@ -406,7 +406,7 @@
      collapsed, so scanning a long list of collapsed tours still tells
      you how big each one is and when it runs without opening any of
      them. */
-  .heading-summary{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--text);font-weight:700;white-space:nowrap;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  .heading-summary{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--teal);font-weight:700;white-space:nowrap;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
   /* The visual companion to that text — a quick, at-a-glance read of
      relative tour size when scanning a long collapsed list, without
      needing to stop and read the number itself for each one. Sized up
@@ -9276,8 +9276,7 @@ function dayHeadingHtml(label, extraHtml = '', pinKeys = null, sectionKeyOverrid
     <svg class="collapse-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
   </button>`;
   const summaryText = tlGroupSummaryText(groupEvents);
-  const gaugeHtml = groupEvents ? tlGroupGaugeHtml(groupEvents.length) : '';
-  const groupSummary = summaryText ? `${gaugeHtml}<span class="heading-summary">${escapeHtml(summaryText)}</span>` : '';
+  const groupSummary = summaryText ? `<span class="heading-summary">${escapeHtml(summaryText)}</span>` : '';
   return `<div class="day-heading collapsible-heading ${extraClass} ${collapsed ? 'collapsed' : ''} ${isShortcutSelected ? 'tl-shortcut-selected' : ''}" data-section="${escapeHtml(key)}">
     <span class="heading-label" data-action="copy-heading-name" data-copy-text="${escapeHtml(label)}" title="Click to copy &quot;${escapeHtml(label)}&quot;">${escapeHtml(label)}</span>${groupSummary}${extraHtml}${copyLinkBtn}
     <div class="heading-icons">${bulkReleaseBtn}${tourNoteBtn}${bulkCodeBtn}${historyBtn}${pinBtn}${collapseBtn}</div>
