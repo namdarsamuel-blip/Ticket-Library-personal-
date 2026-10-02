@@ -406,7 +406,7 @@
      collapsed, so scanning a long list of collapsed tours still tells
      you how big each one is and when it runs without opening any of
      them. */
-  .heading-summary{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);font-weight:700;white-space:nowrap;}
+  .heading-summary{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--text);font-weight:700;white-space:nowrap;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
   /* The visual companion to that text — a quick, at-a-glance read of
      relative tour size when scanning a long collapsed list, without
      needing to stop and read the number itself for each one. Sized up
@@ -414,7 +414,7 @@
      to be readable at a glance while scrolling isn't much good at a
      couple pixels tall. */
   .heading-gauge{display:inline-block;width:100px;height:18px;background:rgba(255,255,255,.16);border-radius:6px;overflow:hidden;vertical-align:middle;margin-right:8px;border:1px solid rgba(255,255,255,.08);}
-  .heading-gauge-fill{display:block;height:100%;background:var(--teal);border-radius:6px 0 0 6px;}
+  .heading-gauge-fill{display:block;height:100%;background:var(--amber);border-radius:6px 0 0 6px;}
   /* Heading-row icon buttons (pin, collapse, note, history) sized up
      from the compact per-card buttons elsewhere — this row has real
      room to spare, and "bigger, rounder, easier to click and see" was
@@ -9156,7 +9156,7 @@ function tlGroupSummaryText(events){
     const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const first = fmt(new Date(dates[0]));
     const last = fmt(new Date(dates[dates.length - 1]));
-    rangeStr = first === last ? first : `${first}\u2013${last}`;
+    rangeStr = first === last ? first : `${first} \u2013 ${last}`;
   }
   const showWord = count === 1 ? 'show' : 'shows';
   return rangeStr ? `${count} ${showWord} \u00b7 ${rangeStr}` : `${count} ${showWord}`;
