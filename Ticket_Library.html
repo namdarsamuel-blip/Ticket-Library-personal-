@@ -166,6 +166,11 @@
   .sheet-tab.add-tab{color:var(--muted);font-size:16px;padding:7px 13px;}
   .sheet-tab.add-tab:hover{color:var(--amber);}
 
+  /* Pushes whatever comes after it (List view) to the right edge of
+     whichever toolbar row it ends up wrapping onto, instead of sitting
+     wedged between the view controls and the action buttons where it
+     reads as part of neither group. */
+  .toolbar-spacer{flex:1 1 auto;}
   .toolbar{
     display:flex;gap:8px;align-items:center;
     /* flex-basis:0 (not auto) keeps the toolbar itself from ever being
@@ -352,49 +357,60 @@
      section/pinned-group rows as the card grid gets (see
      tl-list-section-row), just as a colspan row instead of a heading
      bar, since a table's own column header row already sits above it. */
+  .tl-list-wrap{
+    border:1px solid var(--hairline); border-radius:10px;
+    overflow:hidden; margin-bottom:14px; background:var(--card);
+  }
   .tl-list-table{
     width:100%; border-collapse:collapse;
     font-family:'Inter',sans-serif; font-size:12.5px;
-    margin-bottom:14px;
   }
   .tl-list-table thead th{
-    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
-    letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
-    font-weight:600; padding:6px 10px; border-bottom:1px solid var(--hairline);
-    position:sticky; top:0; background:var(--bg); z-index:1;
+    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10px;
+    letter-spacing:.07em; text-transform:uppercase; color:var(--muted);
+    font-weight:600; padding:9px 12px; border-bottom:1px solid var(--hairline);
+    position:sticky; top:0; background:var(--card); z-index:1;
   }
+  .tl-list-table thead th.tl-th-rating{text-align:center;}
   .tl-list-row td{
-    padding:5px 10px; border-bottom:1px solid var(--hairline);
-    vertical-align:middle; color:var(--text);
+    padding:7px 12px; border-bottom:1px solid var(--hairline);
+    vertical-align:middle; color:var(--text); background:var(--bg);
+    transition:background .1s ease;
   }
-  .tl-list-row:nth-child(even) td{background:rgba(255,255,255,.015);}
+  .tl-list-row:last-child td{border-bottom:none;}
+  .tl-list-row:nth-child(even) td{background:#17171a;}
   .tl-list-row:hover td{background:var(--card-hover);}
-  .tl-list-row.is-pinned td{background:rgba(242,193,78,.06);}
-  .tl-list-name{cursor:pointer; font-weight:600; min-width:160px;}
+  .tl-list-row.is-pinned td{background:rgba(242,193,78,.07);}
+  .tl-list-row.is-pinned:hover td{background:rgba(242,193,78,.12);}
+  .tl-list-dash{color:var(--hairline);}
+  .tl-list-name{cursor:pointer; font-weight:600; min-width:170px;}
   .tl-list-name:hover{color:var(--teal);}
-  .tl-list-venue{color:var(--muted); min-width:160px;}
-  .tl-list-date{font-family:'IBM Plex Mono',monospace; font-size:12.5px; white-space:nowrap;}
-  .tl-list-code{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--amber); white-space:nowrap;}
-  .tl-list-rating{color:var(--amber); text-align:center; font-size:13px;}
-  .tl-list-prices{display:flex; flex-wrap:wrap; gap:4px; min-width:100px;}
+  .tl-list-venue{color:var(--muted); min-width:150px;}
+  .tl-list-date{font-family:'IBM Plex Mono',monospace; font-size:12px; white-space:nowrap;}
+  .tl-list-time{color:var(--muted); margin-left:6px; font-size:11px;}
+  .tl-code-chip{
+    display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    color:var(--amber); background:rgba(242,193,78,.1); border:1px solid rgba(242,193,78,.25);
+    border-radius:5px; padding:2px 7px; margin:1px 3px 1px 0; letter-spacing:.01em;
+  }
+  .tl-list-rating{color:var(--amber); text-align:center; font-size:13px; letter-spacing:0;}
+  .tl-list-prices{display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:100px;}
   .tl-list-note{
-    color:var(--muted); max-width:220px; white-space:nowrap; overflow:hidden;
+    color:var(--muted); max-width:240px; white-space:nowrap; overflow:hidden;
     text-overflow:ellipsis;
   }
   .tl-list-links{display:flex; flex-wrap:wrap; gap:5px; min-width:220px;}
   .tl-list-links .link-btn{flex:0 0 auto; padding:2px 8px; font-size:11px;}
   .tl-list-links .no-links{color:var(--muted); font-size:12px;}
   .tl-list-section-row td{
-    padding:10px 10px 6px; font-family:'Bebas Neue',sans-serif; font-size:17px;
-    letter-spacing:.02em; color:var(--text); border-bottom:1px solid var(--hairline);
-    background:var(--card);
+    padding:10px 12px 6px; font-family:'Bebas Neue',sans-serif; font-size:16px;
+    letter-spacing:.03em; color:var(--muted); border-bottom:1px solid var(--hairline);
+    background:var(--card) !important;
   }
   .tl-list-row .new-badge{margin-right:6px;}
   @media (max-width:900px){
     .tl-list-table{font-size:12px;}
-    .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue,
-    .tl-list-table thead th:nth-child(6), .tl-list-row .tl-list-prices,
-    .tl-list-table thead th:nth-child(7), .tl-list-row .tl-list-note{display:none;}
+    .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
   }
   /* An open notes panel has a lot to show (links, rating, notes, price
      sections) — letting the card span 2 grid columns while it's open
@@ -2053,7 +2069,6 @@
         <option value="shows" selected>By tour size</option>
       </select>
       <button class="filter-btn" id="expandCollapseBtn" type="button" title="Toggle every section open or closed">⌃ Collapse</button>
-      <button class="filter-btn" id="listViewBtn" type="button" title="Switch this sheet to a flat, spreadsheet-style table — Event / Venue / Date / Code / Links, one row per show">▦ List view</button>
       <div class="col-stepper" id="colStepper" title="Columns">
         <button class="col-btn" id="colMinus" type="button" aria-label="Fewer columns">−</button>
         <span class="col-count" id="colCount">8</span>
@@ -2074,6 +2089,8 @@
       <button class="btn ghost" id="archivePastBtn" title="Archive every event dated before today — moves them out of the main view into Archive, nothing is deleted" style="display:none;">📦 Archive past</button>
       <button class="btn danger" id="deleteAllArchivedBtn" title="Permanently remove every archived event on this sheet — sent to History first, so it's still searchable and can be brought back from there" style="display:none;">🗑 Delete archived</button>
       <button class="btn ghost" id="releaseAllPresaleBtn" style="display:none;" title="Move every show on this sheet onto a regular sheet at once — codes, notes, and prices all come with them">↗ Release all shows</button>
+      <span class="toolbar-spacer"></span>
+      <button class="filter-btn" id="listViewBtn" type="button" title="Switch this sheet to a flat, spreadsheet-style table — Event / Venue / Date / Code / Links, one row per show">▦ List view</button>
     </div>
     <div class="account-menu-wrap login-btn-pinned">
       <button class="btn ghost account-menu-trigger" id="adminModeBtn" title="Archived and History">☰</button>
@@ -7686,6 +7703,15 @@ function renderListView(){
 
   countLabel.textContent = `${filtered.length} of ${allEvents.length}`;
 
+  // A sheet where nobody's rated, priced, or noted anything yet (like a
+  // freshly-imported one) would otherwise show two columns of pure empty
+  // space all the way down the page — worse than just not having the
+  // columns. So Prices/Notes only appear once at least one visible row
+  // actually has something in them; same table, no dead space.
+  const showPrices = filtered.some(ev => (getAnnotation(eventKey(ev)).sections || []).some(s => s.label && s.label.trim() && s.price && s.price.trim()));
+  const showNotes = filtered.some(ev => (getAnnotation(eventKey(ev)).note || '').trim());
+  const colCount = 6 + (showPrices ? 1 : 0) + (showNotes ? 1 : 0);
+
   const pinned = filtered.filter(ev => getAnnotation(eventKey(ev)).pinned);
   const rest = filtered.filter(ev => !getAnnotation(eventKey(ev)).pinned);
 
@@ -7712,20 +7738,31 @@ function renderListView(){
   const rowParts = [];
   const emitGroupRows = groupList => {
     groupList.forEach(g => {
-      if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="8">${escapeHtml(g.heading)}</td></tr>`);
-      g.events.forEach(ev => rowParts.push(tlListRowHtml(ev)));
+      if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="${colCount}">${escapeHtml(g.heading)}</td></tr>`);
+      g.events.forEach(ev => rowParts.push(tlListRowHtml(ev, showPrices, showNotes)));
     });
   };
   if(pinned.length){
-    if(!suppressHeadings) rowParts.push('<tr class="tl-list-section-row"><td colspan="8">📌 Pinned</td></tr>');
+    if(!suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="${colCount}">📌 Pinned</td></tr>`);
     emitGroupRows(groupsFor(pinned));
   }
   emitGroupRows(groups);
 
-  listRoot.innerHTML = `<table class="tl-list-table">
-    <thead><tr><th>Event</th><th>Venue</th><th>Date</th><th>Code</th><th>★</th><th>Prices</th><th>Notes</th><th>Links</th></tr></thead>
+  const headerCells = [
+    '<th class="tl-th-name">Event</th>',
+    '<th class="tl-th-venue">Venue</th>',
+    '<th class="tl-th-date">Date</th>',
+    '<th class="tl-th-code">Code</th>',
+    '<th class="tl-th-rating" title="Rating">★</th>',
+    showPrices ? '<th class="tl-th-prices">Prices</th>' : '',
+    showNotes ? '<th class="tl-th-note">Notes</th>' : '',
+    '<th class="tl-th-links">Links</th>'
+  ].filter(Boolean).join('');
+
+  listRoot.innerHTML = `<div class="tl-list-wrap"><table class="tl-list-table">
+    <thead><tr>${headerCells}</tr></thead>
     <tbody>${rowParts.join('')}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 // One row of the list-view table. Reuses the same data-action attributes
@@ -7736,7 +7773,7 @@ function renderListView(){
 // — rating, priced sections, notes and any extra links the person added
 // on top of the main three — same as the card view's notes panel, just
 // flattened into row cells for a quick scan.
-function tlListRowHtml(ev){
+function tlListRowHtml(ev, showPrices, showNotes){
   const key = eventKey(ev);
   const ann = getAnnotation(key);
   const dateHeadline = ev.dateObj ? formatDateTimeHeadline(ev.dateObj) : null;
@@ -7752,18 +7789,22 @@ function tlListRowHtml(ev){
   const priced = (ann.sections || []).filter(s => s.label && s.label.trim() && s.price && s.price.trim());
   const pricesCell = priced.length
     ? priced.map(s => `<span class="price-preview-chip"><b>${escapeHtml(s.label)}</b><span class="price-preview-value">${escapeHtml(formatPriceDisplay(s.price))}</span></span>`).join('')
-    : '';
+    : '<span class="tl-list-dash">—</span>';
   const noteText = (ann.note || '').trim();
+  const codes = (ev.code || '').split(',').map(c => c.trim()).filter(Boolean);
+  const codeCell = codes.length
+    ? codes.map(c => `<span class="tl-code-chip">${escapeHtml(c)}</span>`).join('')
+    : '<span class="tl-list-dash">—</span>';
   return `<tr class="tl-list-row ${ann.pinned ? 'is-pinned' : ''}" data-key="${escapeHtml(key)}">
     <td class="tl-list-name" data-action="insights" data-key="${escapeHtml(key)}" title="See notes and price history across every show with this name">
       ${ann.isNew ? `<span class="new-badge" data-action="dismiss-new" data-key="${escapeHtml(key)}" title="Click to dismiss">NEW</span>` : ''}${ann.pinned ? '📌 ' : ''}${escapeHtml(ev.name)}
     </td>
     <td class="tl-list-venue">${escapeHtml(ev.venue)}</td>
-    <td class="tl-list-date" ${dateHeadline ? `title="${escapeHtml(dateHeadline.fullLabel)}"` : ''}>${dateHeadline ? escapeHtml(dateHeadline.datePart + ' · ' + dateHeadline.timePart) : '—'}</td>
-    <td class="tl-list-code">${ev.code ? escapeHtml(ev.code) : ''}</td>
+    <td class="tl-list-date" ${dateHeadline ? `title="${escapeHtml(dateHeadline.fullLabel)}"` : ''}>${dateHeadline ? escapeHtml(dateHeadline.datePart) : '<span class="tl-list-dash">—</span>'}${dateHeadline ? `<span class="tl-list-time">${escapeHtml(dateHeadline.timePart)}</span>` : ''}</td>
+    <td class="tl-list-code">${codeCell}</td>
     <td class="tl-list-rating">${ann.rating ? '★' : ''}</td>
-    <td class="tl-list-prices">${pricesCell}</td>
-    <td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : ''}</td>
+    ${showPrices ? `<td class="tl-list-prices">${pricesCell}</td>` : ''}
+    ${showNotes ? `<td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : '<span class="tl-list-dash">—</span>'}</td>` : ''}
     <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
   </tr>`;
 }
