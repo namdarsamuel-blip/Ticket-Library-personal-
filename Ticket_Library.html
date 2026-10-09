@@ -359,7 +359,7 @@
      bar, since a table's own column header row already sits above it. */
   .tl-list-wrap{
     border:1px solid var(--hairline); border-radius:10px;
-    overflow:hidden; margin-bottom:14px; background:var(--card);
+    overflow-x:auto; overflow-y:hidden; margin-bottom:14px; background:var(--card);
   }
   .tl-list-table{
     width:100%; border-collapse:collapse;
@@ -408,6 +408,15 @@
     background:var(--card) !important;
   }
   .tl-list-row .new-badge{margin-right:6px;}
+  /* Extra columns carried over from the original upload that this app
+     has no dedicated field for (qty sold, ATP, volume, etc.) — tabular
+     numerals so stacked numbers line up, muted since they're reference
+     data rather than something you'd edit here. */
+  .tl-th-extra{text-align:right; white-space:nowrap;}
+  .tl-list-extra{
+    font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+    font-size:12px; color:var(--muted); text-align:right; white-space:nowrap;
+  }
   @media (max-width:900px){
     .tl-list-table{font-size:12px;}
     .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
@@ -3458,11 +3467,21 @@ let archiveOnly = false; // filter: show only archived events instead of hiding 
 let newOnly = false; // filter: only show events flagged New by the last upload
 // Flat, spreadsheet-style table instead of the card grid — same filtered/
 // sorted/grouped data as the normal standard view, just rendered as rows.
-// A plain in-memory toggle (not persisted, not per-sheet) like selectMode
-// below, rather than a sheet "mode" (see activeSheetMode()) — it doesn't
-// change how a sheet's data is interpreted, only how THIS view happens to
-// display it, and only for standard-mode sheets (see render()).
-let tlListViewActive = false;
+// Defaults ON — the flat table reads better than the card grid for most
+// everyday use (quick scan, more data visible per row), so new tabs open
+// into it rather than requiring a click every time. Persisted across
+// reloads in localStorage (not per-sheet — one global preference for
+// "which view do I prefer"), same pattern as the other small view
+// preferences below. Doesn't change how a sheet's data is interpreted,
+// only how THIS view happens to display it, and only for standard-mode
+// sheets (see render()) — US Open/presale/Broadway always use their own
+// dedicated layouts regardless of this setting.
+const TL_LIST_VIEW_STORAGE_KEY = 'ticketWatch:listViewDefault';
+let tlListViewActive = true;
+try{
+  const storedListViewPref = localStorage.getItem(TL_LIST_VIEW_STORAGE_KEY);
+  if(storedListViewPref !== null) tlListViewActive = storedListViewPref === '1';
+}catch(e){ /* private browsing / storage disabled — falls back to the default above */ }
 // A deliberate, separate view rather than something automatically
 // stitched into every search result the way it used to be — reached
 // only by clicking the 📜 icon on a tour heading (pre-filtered to that
@@ -3574,6 +3593,7 @@ function updateModeUI(){
   // offer the toggle where it'll actually do something.
   listViewBtn.style.display = (isUsOpen || isPresale || isBroadway) ? 'none' : 'inline-flex';
   listViewBtn.classList.toggle('active', tlListViewActive);
+  tlUpdateListViewBtnLabel();
   // US Open always groups by venue category, so its sort dropdown would
   // do nothing — Broadway keeps the dropdown, since which show and which
   // date matter differently show to show and it's worth being able to
@@ -3642,9 +3662,21 @@ newFilterBtn.addEventListener('click', () => {
   render();
 });
 
+// Labeled by what clicking it switches TO, not the current state — now
+// that list view is the default, "List view" sitting there permanently
+// active would just be confusing ("isn't that already on?"). Toggling
+// back to cards shows "⊞ Card view" instead, same button either way.
+function tlUpdateListViewBtnLabel(){
+  listViewBtn.textContent = tlListViewActive ? '⊞ Card view' : '▦ List view';
+  listViewBtn.title = tlListViewActive
+    ? 'Switch back to the card grid'
+    : 'Switch this sheet to a flat, spreadsheet-style table — Event / Venue / Date / Code / Links, one row per show';
+}
 listViewBtn.addEventListener('click', () => {
   tlListViewActive = !tlListViewActive;
   listViewBtn.classList.toggle('active', tlListViewActive);
+  tlUpdateListViewBtnLabel();
+  try{ localStorage.setItem(TL_LIST_VIEW_STORAGE_KEY, tlListViewActive ? '1' : '0'); }catch(e){}
   render();
 });
 
@@ -4024,6 +4056,7 @@ function supabaseRowToEvent(r){
     publicSaleDateStr: r.public_sale_date_str || '',
     priceHistory: r.price_history || [],
     extraLinks: r.extra_links || [],
+    extraFields: r.extra_fields || {},
     deletedAt: r.deleted_at || '',
     deletedFromSheet: r.deleted_from_sheet || ''
   };
@@ -4051,6 +4084,7 @@ function eventToSupabaseRow(ev, sheetName, sheetMode){
     public_sale_date_str: ev.publicSaleDateStr || '',
     price_history: ev.priceHistory || [],
     extra_links: ev.extraLinks || [],
+    extra_fields: ev.extraFields || {},
     deleted_at: ev.deletedAt || '',
     deleted_from_sheet: ev.deletedFromSheet || ''
   };
@@ -5277,6 +5311,15 @@ function recordsFromCSV(text){
     claim(venueIdx);
   }
 
+  // Whatever's left over once every known field has claimed its column —
+  // a sales tracker export regularly has a dozen metrics (qty sold,
+  // average ticket price, volume, day-over-day change…) this app has no
+  // dedicated field for. Rather than silently dropping them on import,
+  // every unclaimed column gets carried along per row under its own
+  // original header text, so none of the uploaded data is lost even
+  // though only a few fields get first-class treatment.
+  const extraIdxs = headers.map((h, i) => i).filter(i => !claimed.includes(i));
+
   let lastSection = ''; // tracks bare-name rows like "Arthur Ashe" or "Grounds Passes"
   // Some presale trackers don't have a dedicated Presale Date column at
   // all — instead the sheet is organized as bare-time header rows
@@ -5339,6 +5382,13 @@ function recordsFromCSV(text){
     const presaleDateVal = (presaleDateIdx !== -1 && row[presaleDateIdx]) ? row[presaleDateIdx] : lastPresaleTimeLabel;
     const presaleDateObj = presaleDateVal ? parseEventDate(presaleDateVal) : null;
 
+    const extraFields = {};
+    extraIdxs.forEach(i => {
+      const header = (headers[i] || '').trim();
+      const val = row[i];
+      if(header && val && String(val).trim()) extraFields[header] = String(val).trim();
+    });
+
     records.push({
       name,
       venue,
@@ -5352,6 +5402,7 @@ function recordsFromCSV(text){
       presaleDateObj: presaleDateObj ? presaleDateObj.toISOString() : null,
       code: codeIdx !== -1 ? row[codeIdx] : '',
       publicSaleDateStr: publicSaleIdx !== -1 ? row[publicSaleIdx] : '',
+      extraFields,
       // Transient — read once by handleCsvUpload to seed the note or
       // append to the code, then discarded. Not a permanent field on
       // the event record.
@@ -7710,7 +7761,20 @@ function renderListView(){
   // actually has something in them; same table, no dead space.
   const showPrices = filtered.some(ev => (getAnnotation(eventKey(ev)).sections || []).some(s => s.label && s.label.trim() && s.price && s.price.trim()));
   const showNotes = filtered.some(ev => (getAnnotation(eventKey(ev)).note || '').trim());
-  const colCount = 6 + (showPrices ? 1 : 0) + (showNotes ? 1 : 0);
+
+  // Any column from the original upload this app doesn't have a
+  // dedicated field for (qty sold, ATP, sales volume, whatever the sheet
+  // tracked) rides along on each event as extraFields, keyed by its
+  // original header. Collected here, in first-seen order, as one column
+  // per distinct header across every visible row — a sheet that's just
+  // Event/Venue/Date gets none of these; a full sales-tracker export
+  // gets all of them, same as the rest of the data that came in.
+  const extraKeys = [];
+  filtered.forEach(ev => {
+    Object.keys(ev.extraFields || {}).forEach(k => { if(!extraKeys.includes(k)) extraKeys.push(k); });
+  });
+
+  const colCount = 6 + (showPrices ? 1 : 0) + (showNotes ? 1 : 0) + extraKeys.length;
 
   const pinned = filtered.filter(ev => getAnnotation(eventKey(ev)).pinned);
   const rest = filtered.filter(ev => !getAnnotation(eventKey(ev)).pinned);
@@ -7739,7 +7803,7 @@ function renderListView(){
   const emitGroupRows = groupList => {
     groupList.forEach(g => {
       if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="${colCount}">${escapeHtml(g.heading)}</td></tr>`);
-      g.events.forEach(ev => rowParts.push(tlListRowHtml(ev, showPrices, showNotes)));
+      g.events.forEach(ev => rowParts.push(tlListRowHtml(ev, showPrices, showNotes, extraKeys)));
     });
   };
   if(pinned.length){
@@ -7756,7 +7820,8 @@ function renderListView(){
     '<th class="tl-th-rating" title="Rating">★</th>',
     showPrices ? '<th class="tl-th-prices">Prices</th>' : '',
     showNotes ? '<th class="tl-th-note">Notes</th>' : '',
-    '<th class="tl-th-links">Links</th>'
+    '<th class="tl-th-links">Links</th>',
+    extraKeys.map(k => `<th class="tl-th-extra">${escapeHtml(k)}</th>`).join('')
   ].filter(Boolean).join('');
 
   listRoot.innerHTML = `<div class="tl-list-wrap"><table class="tl-list-table">
@@ -7773,7 +7838,7 @@ function renderListView(){
 // — rating, priced sections, notes and any extra links the person added
 // on top of the main three — same as the card view's notes panel, just
 // flattened into row cells for a quick scan.
-function tlListRowHtml(ev, showPrices, showNotes){
+function tlListRowHtml(ev, showPrices, showNotes, extraKeys){
   const key = eventKey(ev);
   const ann = getAnnotation(key);
   const dateHeadline = ev.dateObj ? formatDateTimeHeadline(ev.dateObj) : null;
@@ -7806,6 +7871,10 @@ function tlListRowHtml(ev, showPrices, showNotes){
     ${showPrices ? `<td class="tl-list-prices">${pricesCell}</td>` : ''}
     ${showNotes ? `<td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : '<span class="tl-list-dash">—</span>'}</td>` : ''}
     <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
+    ${(extraKeys || []).map(k => {
+      const v = (ev.extraFields || {})[k];
+      return `<td class="tl-list-extra">${v ? escapeHtml(v) : '<span class="tl-list-dash">—</span>'}</td>`;
+    }).join('')}
   </tr>`;
 }
 
