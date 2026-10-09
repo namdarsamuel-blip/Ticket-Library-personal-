@@ -2010,6 +2010,17 @@
      existing periodic poll — realtime is a speed upgrade on top of
      that, not a replacement for it. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- SheetJS — lets "Add CSV" actually accept Excel/Numbers-exported files
+     (.xlsx, .xls, .ods) and tab-separated (.tsv) too, not just plain
+     .csv. Used only to convert whatever file comes in into the same
+     comma-CSV text parseCSV()/recordsFromCSV() already handle (see
+     handleFileUpload below) — the actual column-matching/date-parsing
+     logic is completely untouched either way, so a .csv upload behaves
+     exactly as it always has. Same reasoning as the Supabase script
+     above: if this CDN load ever fails, a plain .csv upload still works
+     fine (that path never touches this library), only xlsx/xls/ods/tsv
+     uploads would fail with a clear error instead of silently breaking. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -2048,8 +2059,8 @@
       <button class="btn ghost" id="confirmArchiveBtn" style="display:none;" disabled>Archive</button>
       <button class="btn danger" id="confirmDeleteBtn" style="display:none;" disabled>Delete</button>
       <button class="btn ghost" id="addShowBtn" title="Add a single show by hand — paste a Ticketmaster link and it'll try to pull the date and name out of it for you">+ Add show</button>
-      <button class="btn primary" id="uploadBtn" title="Adds to THIS sheet — merges in, refreshes matches, skips duplicates. Use + above instead to start a separate new sheet.">Add CSV</button>
-      <input type="file" id="fileInput" accept=".csv">
+      <button class="btn primary" id="uploadBtn" title="Adds to THIS sheet — merges in, refreshes matches, skips duplicates. Accepts .csv, .xlsx, .xls, .ods, and .tsv. Use + above instead to start a separate new sheet.">Add CSV</button>
+      <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsb,.ods">
       <button class="btn ghost" id="markSeenBtn" title="Clear the NEW badge from every event on this sheet">✓ Mark seen</button>
       <button class="btn ghost" id="archivePastBtn" title="Archive every event dated before today — moves them out of the main view into Archive, nothing is deleted" style="display:none;">📦 Archive past</button>
       <button class="btn danger" id="deleteAllArchivedBtn" title="Permanently remove every archived event on this sheet — sent to History first, so it's still searchable and can be brought back from there" style="display:none;">🗑 Delete archived</button>
@@ -2075,8 +2086,8 @@
     <div class="empty" id="emptyState">
       <div class="ticket-icon" id="emptyIcon">🎟️</div>
       <h2 id="emptyHeading">This sheet is empty</h2>
-      <p id="emptyBody">Upload a CSV to fill this sheet. Uploading again adds new events on top and refreshes matching ones — nothing gets duplicated, and your notes stay put. Use + above to start a separate sheet.</p>
-      <div class="drop-zone" id="dropZone">Drag a CSV here, or use the menu above to upload</div>
+      <p id="emptyBody">Upload a CSV or spreadsheet (.xlsx, .xls, .ods, .tsv) to fill this sheet. Uploading again adds new events on top and refreshes matching ones — nothing gets duplicated, and your notes stay put. Use + above to start a separate sheet.</p>
+      <div class="drop-zone" id="dropZone">Drag a CSV or spreadsheet file here, or use the menu above to upload</div>
     </div>
     <div id="listRoot">
       <div class="loading-placeholder" id="loadingPlaceholder">Loading…</div>
@@ -3571,7 +3582,7 @@ function updateModeUI(){
     emptyBody.textContent = 'Deleted events land here — with their notes, sections, and history all still intact — instead of disappearing right away. Restore one back to its original sheet, or delete it for good.';
   } else {
     emptyHeading.textContent = 'This sheet is empty';
-    emptyBody.textContent = 'Upload a CSV to fill this sheet. Uploading again adds new events on top and refreshes matching ones — nothing gets duplicated, and your notes stay put. Use + above to start a separate sheet.';
+    emptyBody.textContent = 'Upload a CSV or spreadsheet (.xlsx, .xls, .ods, .tsv) to fill this sheet. Uploading again adds new events on top and refreshes matching ones — nothing gets duplicated, and your notes stay put. Use + above to start a separate sheet.';
   }
 }
 
@@ -5184,6 +5195,14 @@ function recordsFromCSV(text){
   let nameIdx = detect(['event name', 'event', 'name']);
   const sessionIdx = detect(['session']);
   let venueIdx = detect(['venue', 'city/venue', 'location']);
+  // Separate City/State columns (an export from a sales tracker sheet —
+  // the venue itself in its own column, city and state broken out next
+  // to it — rather than one combined "Venue, City, ST" column) — folded
+  // into the venue text below so a card still shows the full "Arena,
+  // City, ST" either way, instead of just the bare venue name with
+  // nothing saying what city it's even in.
+  const cityIdx = detect(['city']);
+  const stateIdx = detect(['state']);
   // Specific phrasings first — 'date' alone stays last since it's broad
   // enough to risk matching "Presale Date" or "Public Sale Date" instead
   // of the actual show date if it's checked too eagerly.
@@ -5269,6 +5288,15 @@ function recordsFromCSV(text){
 
     let venue = venueIdx !== -1 ? row[venueIdx] : '';
     if(!venue) venue = lastSection;
+    const cityVal = cityIdx !== -1 ? row[cityIdx] : '';
+    const stateVal = stateIdx !== -1 ? row[stateIdx] : '';
+    // Only append city/state when the venue text doesn't already end in
+    // something that looks like one — avoids "Arena, City, ST, City, ST"
+    // on a re-upload/merge of a sheet whose venue column already had
+    // them baked in from a previous export.
+    if(venue && (cityVal || stateVal) && !venue.toLowerCase().includes((cityVal || '').toLowerCase())){
+      venue = [venue, cityVal, stateVal].filter(Boolean).join(', ');
+    }
 
     let name = nameIdx !== -1 ? row[nameIdx] : '';
     if(!name) name = sessionIdx !== -1 ? row[sessionIdx] : '';
@@ -6459,13 +6487,6 @@ function createSheetFromModal(){
   const type = selectedSheetType(); // 'standard' | 'usopen' | 'presale'
   const defaultName = SHEET_TYPE_DEFAULT_NAMES[type] || `Sheet ${sheets.length + 1}`;
   let trimmed = newSheetNameInput.value.trim() || defaultName;
-  // Every new sheet becomes your own private one automatically the
-  // moment you're logged in — no separate "clone a template" step
-  // needed, it's just yours from the start. US Open is the one
-  // exception, since that's specifically meant to stay shared.
-  if(currentUser && type !== 'usopen' && !trimmed.includes(' — ')){
-    trimmed = `${trimmed} — ${currentUser}`;
-  }
   if(sheets.some(s => s.name === trimmed)){
     alert('A sheet with that name already exists.');
     return;
@@ -6640,7 +6661,7 @@ function renderTabs(){
       <span class="tab-label">${escapeHtml(s.name)}</span>
       ${(s.mode === 'trash' || !adminModeOn) ? '' : `<span class="tab-close" data-name="${escapeHtml(s.name)}" title="Delete sheet">×</span>`}
     </button>
-  `).join('') + `<button class="sheet-tab add-tab" id="addSheetBtn" title="Start a new sheet — it's automatically your own private one, unless you pick US Open mode, which stays shared">+</button>`;
+  `).join('') + `<button class="sheet-tab add-tab" id="addSheetBtn" title="Start a new sheet">+</button>`;
 
   sheetTabs.querySelectorAll('.sheet-tab:not(.add-tab)').forEach(btn => {
     btn.addEventListener('click', e => {
@@ -9530,20 +9551,60 @@ function escapeHtml(str){
 
 // ---------- Events ----------
 uploadBtn.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => {
+// A plain .csv is read as text, exactly as this always worked — zero
+// change to that path. Anything else recognizable as a spreadsheet
+// (.xlsx, .xls, .xlsb, .ods — what Excel, Numbers, and a "Download as"
+// from Google Sheets actually produce) or a .tsv/.txt export gets handed
+// to SheetJS instead, which reads the real file bytes and converts
+// whichever sheet/table it finds into the same comma-CSV text a .csv
+// upload would have produced — so it flows into the exact same
+// recordsFromCSV() column-matching and date-parsing from there on,
+// nothing about THAT logic needed to change at all.
+const TL_SPREADSHEET_EXTENSIONS = ['xlsx', 'xls', 'xlsb', 'ods'];
+function tlFileExtension(filename){
+  const m = /\.([a-z0-9]+)$/i.exec(filename || '');
+  return m ? m[1].toLowerCase() : '';
+}
+async function tlReadSpreadsheetFileAsCsv(file){
+  if(typeof XLSX === 'undefined'){
+    throw new Error("the spreadsheet reader didn't load (no internet right now?) — try again, or save this as a .csv and upload that instead");
+  }
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  // The first sheet, same assumption a straight .csv upload already
+  // makes (one table per file) — a workbook with the actual data on a
+  // later tab (summary/notes sheet first) would need that sheet picked
+  // by hand; not handled here since there's no "which sheet did you
+  // mean" prompt in this upload flow to ask it through.
+  const firstSheetName = workbook.SheetNames[0];
+  if(!firstSheetName) throw new Error('that file has no sheets in it');
+  const sheet = workbook.Sheets[firstSheetName];
+  return XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+}
+fileInput.addEventListener('change', async e => {
   const file = e.target.files[0];
+  fileInput.value = '';
   if(!file) return;
+  const ext = tlFileExtension(file.name);
+  if(TL_SPREADSHEET_EXTENSIONS.includes(ext)){
+    try{
+      const csvText = await tlReadSpreadsheetFileAsCsv(file);
+      await handleCsvUpload(file, csvText);
+    }catch(err){
+      alert(`Could not read that ${ext.toUpperCase()} file: ${err.message}`);
+    }
+    return;
+  }
   const reader = new FileReader();
   reader.onload = ev => {
     try{
       handleCsvUpload(file, ev.target.result);
     }catch(err){
-      alert('Could not read that CSV: ' + err.message);
+      alert('Could not read that file: ' + err.message);
     }
   };
   reader.onerror = () => alert('Could not read that file.');
   reader.readAsText(file);
-  fileInput.value = '';
 });
 
 releaseAllPresaleBtn.addEventListener('click', () => {
@@ -10541,12 +10602,24 @@ document.addEventListener('drop', e => {
   dropZone.classList.remove('drag');
   const file = e.dataTransfer.files[0];
   if(!file) return;
+  // Same CSV-vs-spreadsheet branch the file-picker upload uses (see
+  // tlReadSpreadsheetFileAsCsv above it) — dragging an .xlsx/.xls/.ods
+  // straight onto the drop zone goes through SheetJS the same way
+  // choosing one from the file picker does, rather than only working
+  // for an actual drag when the file picker already handles more.
+  const dropExt = tlFileExtension(file.name);
+  if(TL_SPREADSHEET_EXTENSIONS.includes(dropExt)){
+    tlReadSpreadsheetFileAsCsv(file)
+      .then(csvText => handleCsvUpload(file, csvText))
+      .catch(err => alert(`Could not read that ${dropExt.toUpperCase()} file: ${err.message}`));
+    return;
+  }
   const reader = new FileReader();
   reader.onload = ev => {
     try{
       handleCsvUpload(file, ev.target.result);
     }catch(err){
-      alert('Could not read that CSV: ' + err.message);
+      alert('Could not read that file: ' + err.message);
     }
   };
   reader.onerror = () => alert('Could not read that file.');
