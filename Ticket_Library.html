@@ -375,6 +375,12 @@
   .tl-list-venue{color:var(--muted); min-width:160px;}
   .tl-list-date{font-family:'IBM Plex Mono',monospace; font-size:12.5px; white-space:nowrap;}
   .tl-list-code{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--amber); white-space:nowrap;}
+  .tl-list-rating{color:var(--amber); text-align:center; font-size:13px;}
+  .tl-list-prices{display:flex; flex-wrap:wrap; gap:4px; min-width:100px;}
+  .tl-list-note{
+    color:var(--muted); max-width:220px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis;
+  }
   .tl-list-links{display:flex; flex-wrap:wrap; gap:5px; min-width:220px;}
   .tl-list-links .link-btn{flex:0 0 auto; padding:2px 8px; font-size:11px;}
   .tl-list-links .no-links{color:var(--muted); font-size:12px;}
@@ -386,7 +392,9 @@
   .tl-list-row .new-badge{margin-right:6px;}
   @media (max-width:900px){
     .tl-list-table{font-size:12px;}
-    .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
+    .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue,
+    .tl-list-table thead th:nth-child(6), .tl-list-row .tl-list-prices,
+    .tl-list-table thead th:nth-child(7), .tl-list-row .tl-list-note{display:none;}
   }
   /* An open notes panel has a lot to show (links, rating, notes, price
      sections) — letting the card span 2 grid columns while it's open
@@ -7704,18 +7712,18 @@ function renderListView(){
   const rowParts = [];
   const emitGroupRows = groupList => {
     groupList.forEach(g => {
-      if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="5">${escapeHtml(g.heading)}</td></tr>`);
+      if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="8">${escapeHtml(g.heading)}</td></tr>`);
       g.events.forEach(ev => rowParts.push(tlListRowHtml(ev)));
     });
   };
   if(pinned.length){
-    if(!suppressHeadings) rowParts.push('<tr class="tl-list-section-row"><td colspan="5">📌 Pinned</td></tr>');
+    if(!suppressHeadings) rowParts.push('<tr class="tl-list-section-row"><td colspan="8">📌 Pinned</td></tr>');
     emitGroupRows(groupsFor(pinned));
   }
   emitGroupRows(groups);
 
   listRoot.innerHTML = `<table class="tl-list-table">
-    <thead><tr><th>Event</th><th>Venue</th><th>Date</th><th>Code</th><th>Links</th></tr></thead>
+    <thead><tr><th>Event</th><th>Venue</th><th>Date</th><th>Code</th><th>★</th><th>Prices</th><th>Notes</th><th>Links</th></tr></thead>
     <tbody>${rowParts.join('')}</tbody>
   </table>`;
 }
@@ -7724,15 +7732,28 @@ function renderListView(){
 // (insights, dismiss-new) the card view's click delegation already
 // listens for, so clicking the name here opens the identical Insights
 // panel — nothing new for the existing click handler to know about.
+// Shows every bit of data that exists for the event, not just the basics
+// — rating, priced sections, notes and any extra links the person added
+// on top of the main three — same as the card view's notes panel, just
+// flattened into row cells for a quick scan.
 function tlListRowHtml(ev){
   const key = eventKey(ev);
   const ann = getAnnotation(key);
   const dateHeadline = ev.dateObj ? formatDateTimeHeadline(ev.dateObj) : null;
+  const extraLinkRows = (ann.extraLinks || []).filter(l => l && l.url).map(l =>
+    `<a class="link-btn tl-list-link" href="${encodeURI(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.label && l.label.trim() ? l.label.trim() : 'Link')}</a>`
+  ).join('');
   const links = [
     ev.primaryLink ? `<a class="link-btn tl-list-link ${siteClass(ev.primarySite)}" href="${encodeURI(ev.primaryLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(siteLabel(ev.primarySite))}</a>` : '',
     ev.vividLink ? `<a class="link-btn tl-list-link site-vivid" href="${encodeURI(ev.vividLink)}" target="_blank" rel="noopener noreferrer">VividSeats</a>` : '',
-    ev.stubLink ? `<a class="link-btn tl-list-link site-stub" href="${encodeURI(ev.stubLink)}" target="_blank" rel="noopener noreferrer">StubHub</a>` : ''
+    ev.stubLink ? `<a class="link-btn tl-list-link site-stub" href="${encodeURI(ev.stubLink)}" target="_blank" rel="noopener noreferrer">StubHub</a>` : '',
+    extraLinkRows
   ].filter(Boolean).join('');
+  const priced = (ann.sections || []).filter(s => s.label && s.label.trim() && s.price && s.price.trim());
+  const pricesCell = priced.length
+    ? priced.map(s => `<span class="price-preview-chip"><b>${escapeHtml(s.label)}</b><span class="price-preview-value">${escapeHtml(formatPriceDisplay(s.price))}</span></span>`).join('')
+    : '';
+  const noteText = (ann.note || '').trim();
   return `<tr class="tl-list-row ${ann.pinned ? 'is-pinned' : ''}" data-key="${escapeHtml(key)}">
     <td class="tl-list-name" data-action="insights" data-key="${escapeHtml(key)}" title="See notes and price history across every show with this name">
       ${ann.isNew ? `<span class="new-badge" data-action="dismiss-new" data-key="${escapeHtml(key)}" title="Click to dismiss">NEW</span>` : ''}${ann.pinned ? '📌 ' : ''}${escapeHtml(ev.name)}
@@ -7740,6 +7761,9 @@ function tlListRowHtml(ev){
     <td class="tl-list-venue">${escapeHtml(ev.venue)}</td>
     <td class="tl-list-date" ${dateHeadline ? `title="${escapeHtml(dateHeadline.fullLabel)}"` : ''}>${dateHeadline ? escapeHtml(dateHeadline.datePart + ' · ' + dateHeadline.timePart) : '—'}</td>
     <td class="tl-list-code">${ev.code ? escapeHtml(ev.code) : ''}</td>
+    <td class="tl-list-rating">${ann.rating ? '★' : ''}</td>
+    <td class="tl-list-prices">${pricesCell}</td>
+    <td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : ''}</td>
     <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
   </tr>`;
 }
