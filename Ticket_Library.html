@@ -354,28 +354,29 @@
      bar, since a table's own column header row already sits above it. */
   .tl-list-table{
     width:100%; border-collapse:collapse;
-    font-family:'Inter',sans-serif; font-size:13px;
+    font-family:'Inter',sans-serif; font-size:12.5px;
     margin-bottom:14px;
   }
   .tl-list-table thead th{
-    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
     letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
-    font-weight:600; padding:8px 10px; border-bottom:1px solid var(--hairline);
+    font-weight:600; padding:6px 10px; border-bottom:1px solid var(--hairline);
     position:sticky; top:0; background:var(--bg); z-index:1;
   }
   .tl-list-row td{
-    padding:9px 10px; border-bottom:1px solid var(--hairline);
+    padding:5px 10px; border-bottom:1px solid var(--hairline);
     vertical-align:middle; color:var(--text);
   }
+  .tl-list-row:nth-child(even) td{background:rgba(255,255,255,.015);}
   .tl-list-row:hover td{background:var(--card-hover);}
-  .tl-list-row.is-pinned td{background:rgba(242,193,78,.05);}
+  .tl-list-row.is-pinned td{background:rgba(242,193,78,.06);}
   .tl-list-name{cursor:pointer; font-weight:600; min-width:160px;}
   .tl-list-name:hover{color:var(--teal);}
   .tl-list-venue{color:var(--muted); min-width:160px;}
   .tl-list-date{font-family:'IBM Plex Mono',monospace; font-size:12.5px; white-space:nowrap;}
   .tl-list-code{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--amber); white-space:nowrap;}
-  .tl-list-links{display:flex; flex-wrap:wrap; gap:6px; min-width:220px;}
-  .tl-list-links .link-btn{flex:0 0 auto; padding:4px 9px; font-size:11.5px;}
+  .tl-list-links{display:flex; flex-wrap:wrap; gap:5px; min-width:220px;}
+  .tl-list-links .link-btn{flex:0 0 auto; padding:2px 8px; font-size:11px;}
   .tl-list-links .no-links{color:var(--muted); font-size:12px;}
   .tl-list-section-row td{
     padding:10px 10px 6px; font-family:'Bebas Neue',sans-serif; font-size:17px;
@@ -7692,15 +7693,23 @@ function renderListView(){
     return;
   }
 
+  // Sorting by date is the "just let me scan down the list fast" mode —
+  // a heading per calendar day would chop a long list into dozens of
+  // one-line sections, which is the opposite of a quick scan. Every row
+  // already shows its own date in the Date column, so date-sort skips
+  // section headings entirely and stays one continuous table. Other sort
+  // modes (venue/name/tour size) keep their headings since grouping is
+  // the point of picking them.
+  const suppressHeadings = sortMode === 'date';
   const rowParts = [];
   const emitGroupRows = groupList => {
     groupList.forEach(g => {
-      if(g.showHeading) rowParts.push(`<tr class="tl-list-section-row"><td colspan="5">${escapeHtml(g.heading)}</td></tr>`);
+      if(g.showHeading && !suppressHeadings) rowParts.push(`<tr class="tl-list-section-row"><td colspan="5">${escapeHtml(g.heading)}</td></tr>`);
       g.events.forEach(ev => rowParts.push(tlListRowHtml(ev)));
     });
   };
   if(pinned.length){
-    rowParts.push('<tr class="tl-list-section-row"><td colspan="5">📌 Pinned</td></tr>');
+    if(!suppressHeadings) rowParts.push('<tr class="tl-list-section-row"><td colspan="5">📌 Pinned</td></tr>');
     emitGroupRows(groupsFor(pinned));
   }
   emitGroupRows(groups);
