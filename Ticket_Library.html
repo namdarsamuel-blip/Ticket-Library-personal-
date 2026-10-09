@@ -357,14 +357,16 @@
      section/pinned-group rows as the card grid gets (see
      tl-list-section-row), just as a colspan row instead of a heading
      bar, since a table's own column header row already sits above it. */
-  /* Dense, grid-lined spreadsheet table — thin vertical rules between
-     every column (not just horizontal row lines) so a row stays easy to
-     track across a dozen-plus columns, tight row height so far more of
-     the sheet fits on screen without scrolling, closer to an actual data
-     tool (TicketIQ/Sheets) than the airier card-grid styling the rest of
-     the app uses. */
+  /* A dense table, but one with intent rather than a raw spreadsheet
+     dump: separation comes mostly from whitespace and a quiet row rule,
+     not a cage of vertical lines around every cell — the one vertical
+     rule that remains (tl-col-divider) marks a real boundary, between
+     the fields this app understands and the extra columns carried along
+     unread from whatever was uploaded. A thin teal rule under the header
+     ties it back to the app's own accent instead of reading as generic
+     admin-table chrome. */
   .tl-list-wrap{
-    border:1px solid var(--hairline); border-radius:8px;
+    border:1px solid var(--hairline); border-radius:10px;
     overflow-x:auto; overflow-y:hidden; margin-bottom:14px; background:var(--bg);
   }
   .tl-list-table{
@@ -373,22 +375,20 @@
   }
   .tl-list-table thead th{
     text-align:left; font-family:'IBM Plex Mono',monospace; font-size:9.5px;
-    letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
-    font-weight:600; padding:6px 9px; border-bottom:1px solid var(--hairline);
-    border-right:1px solid var(--hairline);
-    position:sticky; top:0; background:#1a1a1e; z-index:1; white-space:nowrap;
+    letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
+    font-weight:600; padding:8px 10px; border-bottom:1.5px solid rgba(79,200,191,.35);
+    position:sticky; top:0; background:#18181b; z-index:1; white-space:nowrap;
   }
-  .tl-list-table thead th:last-child{border-right:none;}
   .tl-list-table thead th.tl-th-rating{text-align:center;}
+  .tl-list-table thead th.tl-col-divider{border-left:1px solid var(--hairline); padding-left:14px;}
   .tl-list-row td{
-    padding:3.5px 9px; border-bottom:1px solid var(--hairline);
-    border-right:1px solid var(--hairline);
+    padding:5px 10px; border-bottom:1px solid var(--hairline);
     vertical-align:middle; color:var(--text); background:var(--bg);
     line-height:1.3;
   }
-  .tl-list-row td:last-child{border-right:none;}
+  .tl-list-row td.tl-col-divider{border-left:1px solid var(--hairline); padding-left:14px;}
   .tl-list-row:last-child td{border-bottom:none;}
-  .tl-list-row:nth-child(even) td{background:#161618;}
+  .tl-list-row:nth-child(even) td{background:rgba(79,200,191,.025);}
   .tl-list-row:hover td{background:var(--card-hover);}
   .tl-list-row.is-pinned td{background:rgba(242,193,78,.07);}
   .tl-list-row.is-pinned:hover td{background:rgba(242,193,78,.12);}
@@ -400,7 +400,7 @@
   .tl-list-time{color:var(--muted); margin-left:5px; font-size:10.5px;}
   .tl-code-chip{
     display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
-    color:var(--amber); background:rgba(242,193,78,.1); border:1px solid rgba(242,193,78,.22);
+    color:var(--amber); background:rgba(242,193,78,.08); border:1px solid rgba(242,193,78,.2);
     border-radius:4px; padding:1px 6px; margin:1px 3px 1px 0; letter-spacing:.01em;
   }
   .tl-list-rating{color:var(--amber); text-align:center; font-size:12px; letter-spacing:0;}
@@ -410,25 +410,41 @@
     text-overflow:ellipsis;
   }
   .tl-list-links{display:flex; flex-wrap:nowrap; gap:4px; min-width:0;}
-  .tl-list-links .link-btn{flex:0 0 auto; padding:1px 7px; font-size:10.5px;}
+  .tl-list-links .link-btn{
+    flex:0 0 auto; padding:1px 8px; font-size:10.5px; font-weight:500;
+    opacity:.88;
+  }
+  .tl-list-links .link-btn:hover{opacity:1;}
   .tl-list-links .no-links{color:var(--muted); font-size:11px;}
   .tl-list-section-row td{
-    padding:7px 9px 5px; font-family:'Bebas Neue',sans-serif; font-size:14px;
-    letter-spacing:.03em; color:var(--muted); border-bottom:1px solid var(--hairline);
-    background:#1a1a1e !important;
+    padding:9px 10px 6px; font-family:'Bebas Neue',sans-serif; font-size:15px;
+    letter-spacing:.03em; color:var(--text); border-bottom:1px solid var(--hairline);
+    background:#18181b !important;
   }
+  /* Every row screaming "NEW" the moment a big sheet gets imported is
+     just noise — a small dot carries the same information (something
+     here is new since your last upload) without fighting the data for
+     attention the way a solid red label repeated 30+ times down a
+     column does. Still clickable, same dismiss action. */
   .tl-list-row .new-badge{
-    margin-right:5px; font-size:9px; padding:1px 5px; letter-spacing:.03em;
+    display:inline-block; width:6px; height:6px; padding:0; margin-right:7px;
+    border-radius:50%; background:var(--coral); font-size:0;
+    vertical-align:middle; position:relative; top:-1px;
   }
   /* Extra columns carried over from the original upload that this app
      has no dedicated field for (qty sold, ATP, volume, etc.) — tabular
      numerals so stacked numbers line up, muted since they're reference
-     data rather than something you'd edit here. */
-  .tl-th-extra{text-align:right; white-space:nowrap;}
+     data rather than something you'd edit here. A day-over-day change
+     column gets colored by sign (up green, down the app's existing
+     danger red) since that's the one piece of these numbers worth
+     reading at a glance rather than digit-by-digit. */
+  .tl-th-extra{text-align:right; white-space:nowrap; color:#6f6d73;}
   .tl-list-extra{
     font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
     font-size:11px; color:var(--muted); text-align:right; white-space:nowrap;
   }
+  .tl-list-extra.is-up{color:#5fb87a;}
+  .tl-list-extra.is-down{color:#e07a7a;}
   @media (max-width:900px){
     .tl-list-table{font-size:11.5px;}
     .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
@@ -4458,6 +4474,7 @@ function buildEventsAndAnnotations(rows){
       presaleDateStr: ev.presaleDateStr || '',
       presaleDateObj: presaleParsed ? presaleParsed.toISOString() : null,
       code: ev.code || '', publicSaleDateStr: ev.publicSaleDateStr || '',
+      extraFields: ev.extraFields || {},
       deletedAt: ev.deletedAt || '', deletedFromSheet: ev.deletedFromSheet || '',
       __sheet: ev.appSheet, __mode: ev.sheetMode || 'standard'
     };
@@ -7833,7 +7850,7 @@ function renderListView(){
     showPrices ? '<th class="tl-th-prices">Prices</th>' : '',
     showNotes ? '<th class="tl-th-note">Notes</th>' : '',
     '<th class="tl-th-links">Links</th>',
-    extraKeys.map(k => `<th class="tl-th-extra">${escapeHtml(k)}</th>`).join('')
+    extraKeys.map((k, i) => `<th class="tl-th-extra${i === 0 ? ' tl-col-divider' : ''}">${escapeHtml(k)}</th>`).join('')
   ].filter(Boolean).join('');
 
   listRoot.innerHTML = `<div class="tl-list-wrap"><table class="tl-list-table">
@@ -7883,9 +7900,18 @@ function tlListRowHtml(ev, showPrices, showNotes, extraKeys){
     ${showPrices ? `<td class="tl-list-prices">${pricesCell}</td>` : ''}
     ${showNotes ? `<td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : '<span class="tl-list-dash">—</span>'}</td>` : ''}
     <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
-    ${(extraKeys || []).map(k => {
+    ${(extraKeys || []).map((k, i) => {
       const v = (ev.extraFields || {})[k];
-      return `<td class="tl-list-extra">${v ? escapeHtml(v) : '<span class="tl-list-dash">—</span>'}</td>`;
+      const dividerClass = i === 0 ? ' tl-col-divider' : '';
+      // A "change" column (day-over-day ATP shift, etc.) is the one kind
+      // of extra data worth coloring by sign — up/down is the actual
+      // takeaway, not just a number to read digit by digit.
+      let signClass = '';
+      if(v && /change/i.test(k)){
+        if(/^-/.test(v.trim())) signClass = ' is-down';
+        else if(parseFloat(v) > 0) signClass = ' is-up';
+      }
+      return `<td class="tl-list-extra${dividerClass}${signClass}">${v ? escapeHtml(v) : '<span class="tl-list-dash">—</span>'}</td>`;
     }).join('')}
   </tr>`;
 }
