@@ -346,6 +346,47 @@
     gap:10px;
     margin-bottom:4px;
   }
+  /* List view — a flat, spreadsheet-style table in place of the card
+     grid above, for a sheet that's really just a list to scan or copy
+     out of rather than something being worked show-by-show. Same
+     section/pinned-group rows as the card grid gets (see
+     tl-list-section-row), just as a colspan row instead of a heading
+     bar, since a table's own column header row already sits above it. */
+  .tl-list-table{
+    width:100%; border-collapse:collapse;
+    font-family:'Inter',sans-serif; font-size:13px;
+    margin-bottom:14px;
+  }
+  .tl-list-table thead th{
+    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+    font-weight:600; padding:8px 10px; border-bottom:1px solid var(--hairline);
+    position:sticky; top:0; background:var(--bg); z-index:1;
+  }
+  .tl-list-row td{
+    padding:9px 10px; border-bottom:1px solid var(--hairline);
+    vertical-align:middle; color:var(--text);
+  }
+  .tl-list-row:hover td{background:var(--card-hover);}
+  .tl-list-row.is-pinned td{background:rgba(242,193,78,.05);}
+  .tl-list-name{cursor:pointer; font-weight:600; min-width:160px;}
+  .tl-list-name:hover{color:var(--teal);}
+  .tl-list-venue{color:var(--muted); min-width:160px;}
+  .tl-list-date{font-family:'IBM Plex Mono',monospace; font-size:12.5px; white-space:nowrap;}
+  .tl-list-code{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--amber); white-space:nowrap;}
+  .tl-list-links{display:flex; flex-wrap:wrap; gap:6px; min-width:220px;}
+  .tl-list-links .link-btn{flex:0 0 auto; padding:4px 9px; font-size:11.5px;}
+  .tl-list-links .no-links{color:var(--muted); font-size:12px;}
+  .tl-list-section-row td{
+    padding:10px 10px 6px; font-family:'Bebas Neue',sans-serif; font-size:17px;
+    letter-spacing:.02em; color:var(--text); border-bottom:1px solid var(--hairline);
+    background:var(--card);
+  }
+  .tl-list-row .new-badge{margin-right:6px;}
+  @media (max-width:900px){
+    .tl-list-table{font-size:12px;}
+    .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
+  }
   /* An open notes panel has a lot to show (links, rating, notes, price
      sections) — letting the card span 2 grid columns while it's open
      gives it real extra width through normal grid layout, which the grid
@@ -1992,6 +2033,7 @@
         <option value="shows" selected>By tour size</option>
       </select>
       <button class="filter-btn" id="expandCollapseBtn" type="button" title="Toggle every section open or closed">⌃ Collapse</button>
+      <button class="filter-btn" id="listViewBtn" type="button" title="Switch this sheet to a flat, spreadsheet-style table — Event / Venue / Date / Code / Links, one row per show">▦ List view</button>
       <div class="col-stepper" id="colStepper" title="Columns">
         <button class="col-btn" id="colMinus" type="button" aria-label="Fewer columns">−</button>
         <span class="col-count" id="colCount">8</span>
@@ -2267,6 +2309,7 @@ const colMinus = $('#colMinus');
 const colPlus = $('#colPlus');
 const colCount = $('#colCount');
 const newFilterBtn = $('#newFilterBtn');
+const listViewBtn = $('#listViewBtn');
 const undoBtn = $('#undoBtn');
 const redoBtn = $('#redoBtn');
 const expandCollapseBtn = $('#expandCollapseBtn');
@@ -3376,6 +3419,13 @@ let noteSnapshotOnOpen = null; // ann.note captured when the panel opened, so cl
 let historyExpandedKeys = new Set(); // keys whose note-history list is currently expanded
 let archiveOnly = false; // filter: show only archived events instead of hiding them
 let newOnly = false; // filter: only show events flagged New by the last upload
+// Flat, spreadsheet-style table instead of the card grid — same filtered/
+// sorted/grouped data as the normal standard view, just rendered as rows.
+// A plain in-memory toggle (not persisted, not per-sheet) like selectMode
+// below, rather than a sheet "mode" (see activeSheetMode()) — it doesn't
+// change how a sheet's data is interpreted, only how THIS view happens to
+// display it, and only for standard-mode sheets (see render()).
+let tlListViewActive = false;
 // A deliberate, separate view rather than something automatically
 // stitched into every search result the way it used to be — reached
 // only by clicking the 📜 icon on a tour heading (pre-filtered to that
@@ -3479,6 +3529,14 @@ function updateModeUI(){
   // "New only" filter would just be filtering by something invisible.
   // Trash never sets isNew on anything it receives either, same reason.
   newFilterBtn.style.display = (isPresale || isTrash) ? 'none' : 'inline-flex';
+  // List view is just an alternate rendering of the same standard-mode
+  // data renderStandard() already handles (see render()) — US Open,
+  // Presale, and Broadway each have their own distinct layouts (day/night
+  // columns, drop-time grouping, matinee/evening merging) that list view
+  // doesn't know how to flatten into rows, so it only makes sense to
+  // offer the toggle where it'll actually do something.
+  listViewBtn.style.display = (isUsOpen || isPresale || isBroadway) ? 'none' : 'inline-flex';
+  listViewBtn.classList.toggle('active', tlListViewActive);
   // US Open always groups by venue category, so its sort dropdown would
   // do nothing — Broadway keeps the dropdown, since which show and which
   // date matter differently show to show and it's worth being able to
@@ -3544,6 +3602,12 @@ colPlus.addEventListener('click', () => {
 newFilterBtn.addEventListener('click', () => {
   newOnly = !newOnly;
   newFilterBtn.classList.toggle('active', newOnly);
+  render();
+});
+
+listViewBtn.addEventListener('click', () => {
+  tlListViewActive = !tlListViewActive;
+  listViewBtn.classList.toggle('active', tlListViewActive);
   render();
 });
 
@@ -6888,6 +6952,7 @@ function render(){
   if(mode === 'usopen') renderUsOpen();
   else if(mode === 'presale') renderPresale();
   else if(mode === 'broadway') renderBroadway();
+  else if(tlListViewActive) renderListView();
   else renderStandard();
   refreshNavigation();
 }
@@ -7556,6 +7621,97 @@ function renderStandard(){
   });
   flushGrid();
   listRoot.innerHTML = htmlParts.join('');
+}
+
+// The "List view" toggle's renderer — same filtering, archiving, sorting
+// and grouping as renderStandard() just above (reuses the exact same
+// groupBy* functions and sortMode), but laid out as plain table rows
+// instead of a grid of cards. Meant for a sheet that's really just a
+// flat list to scan or copy out of (a tour's full date list, say) rather
+// than something you're actively working each show on — notes, price
+// history, and sections all still live under the full card view,
+// reachable the same way (clicking the event name opens the same
+// Insights panel either view uses).
+function renderListView(){
+  const query = searchInput.value.trim().toLowerCase();
+  const hasData = allEvents.length > 0;
+  emptyState.style.display = hasData ? 'none' : 'block';
+  updateDeleteAllArchivedBtnVisibility();
+  releaseAllPresaleBtn.style.display = 'none';
+
+  if(!hasData){
+    listRoot.innerHTML = '';
+    countLabel.textContent = '';
+    return;
+  }
+
+  let filtered = allEvents.filter(ev => {
+    if(!matchesSearch(ev, query)) return false;
+    const ann = getAnnotation(eventKey(ev));
+    if(archiveOnly) return !!ann.archived;
+    if(ann.archived) return false;
+    if(newOnly && !ann.isNew) return false;
+    return true;
+  });
+
+  countLabel.textContent = `${filtered.length} of ${allEvents.length}`;
+
+  const pinned = filtered.filter(ev => getAnnotation(eventKey(ev)).pinned);
+  const rest = filtered.filter(ev => !getAnnotation(eventKey(ev)).pinned);
+
+  const groupsFor = list => sortMode === 'upload' ? groupByUploadOrder(list)
+    : sortMode === 'venue' ? groupByVenue(list)
+    : sortMode === 'name' ? groupByName(list)
+    : sortMode === 'shows' ? groupByShowCount(list)
+    : groupByDate(list);
+
+  const groups = groupsFor(rest);
+  if(!groups.length && !pinned.length){
+    listRoot.innerHTML = '<div class="no-results">No events match your search.</div>';
+    return;
+  }
+
+  const rowParts = [];
+  const emitGroupRows = groupList => {
+    groupList.forEach(g => {
+      if(g.showHeading) rowParts.push(`<tr class="tl-list-section-row"><td colspan="5">${escapeHtml(g.heading)}</td></tr>`);
+      g.events.forEach(ev => rowParts.push(tlListRowHtml(ev)));
+    });
+  };
+  if(pinned.length){
+    rowParts.push('<tr class="tl-list-section-row"><td colspan="5">📌 Pinned</td></tr>');
+    emitGroupRows(groupsFor(pinned));
+  }
+  emitGroupRows(groups);
+
+  listRoot.innerHTML = `<table class="tl-list-table">
+    <thead><tr><th>Event</th><th>Venue</th><th>Date</th><th>Code</th><th>Links</th></tr></thead>
+    <tbody>${rowParts.join('')}</tbody>
+  </table>`;
+}
+
+// One row of the list-view table. Reuses the same data-action attributes
+// (insights, dismiss-new) the card view's click delegation already
+// listens for, so clicking the name here opens the identical Insights
+// panel — nothing new for the existing click handler to know about.
+function tlListRowHtml(ev){
+  const key = eventKey(ev);
+  const ann = getAnnotation(key);
+  const dateHeadline = ev.dateObj ? formatDateTimeHeadline(ev.dateObj) : null;
+  const links = [
+    ev.primaryLink ? `<a class="link-btn tl-list-link ${siteClass(ev.primarySite)}" href="${encodeURI(ev.primaryLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(siteLabel(ev.primarySite))}</a>` : '',
+    ev.vividLink ? `<a class="link-btn tl-list-link site-vivid" href="${encodeURI(ev.vividLink)}" target="_blank" rel="noopener noreferrer">VividSeats</a>` : '',
+    ev.stubLink ? `<a class="link-btn tl-list-link site-stub" href="${encodeURI(ev.stubLink)}" target="_blank" rel="noopener noreferrer">StubHub</a>` : ''
+  ].filter(Boolean).join('');
+  return `<tr class="tl-list-row ${ann.pinned ? 'is-pinned' : ''}" data-key="${escapeHtml(key)}">
+    <td class="tl-list-name" data-action="insights" data-key="${escapeHtml(key)}" title="See notes and price history across every show with this name">
+      ${ann.isNew ? `<span class="new-badge" data-action="dismiss-new" data-key="${escapeHtml(key)}" title="Click to dismiss">NEW</span>` : ''}${ann.pinned ? '📌 ' : ''}${escapeHtml(ev.name)}
+    </td>
+    <td class="tl-list-venue">${escapeHtml(ev.venue)}</td>
+    <td class="tl-list-date" ${dateHeadline ? `title="${escapeHtml(dateHeadline.fullLabel)}"` : ''}>${dateHeadline ? escapeHtml(dateHeadline.datePart + ' · ' + dateHeadline.timePart) : '—'}</td>
+    <td class="tl-list-code">${ev.code ? escapeHtml(ev.code) : ''}</td>
+    <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
+  </tr>`;
 }
 
 // Full ticket card for standard sheets: name as the headline, date/time,
