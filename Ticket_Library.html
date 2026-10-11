@@ -5559,10 +5559,87 @@ function matchesSearch(ev, query, annOverride){
 
 // New uploads add on top of what's here; matching events (same key) get
 // their ticket data refreshed, true duplicates are skipped.
+//
+// A real scenario that drove this: a presale tracker sheet often lists
+// the same shows as a richer sales-tracker export, but as a much thinner
+// row — just name/venue/date/code/link, none of the sales-tracker's
+// extra columns (qty sold, ATP, etc.) — and its date column is usually
+// formatted completely differently ("Thu 1/21" vs whatever the other
+// export used). Matching used to mean "replace the whole event object
+// with whatever this upload has," which would both (a) wipe out the
+// richer sheet's extraFields the thinner one knows nothing about, and
+// (b) likely miss the match entirely once the date strings disagree,
+// creating a duplicate row instead of attaching the link to the real one.
+//
+// Fixed two ways: a found match gets ENRICHED (incoming values overlay
+// onto the existing object field-by-field, only when the incoming side
+// actually has something there — extraFields specifically gets merged
+// key-by-key rather than replaced) instead of fully replacing it; and
+// when the normal name/venue/date-string key doesn't land a match, a
+// second pass tries venue + the show's actual calendar day (parsed, so
+// immune to date-format differences) + code, which is specific enough to
+// safely identify "the same show" without needing identical date text.
 function mergeEvents(existing, incoming){
   const map = new Map();
   existing.forEach(ev => map.set(eventKey(ev), ev));
-  incoming.forEach(ev => map.set(eventKey(ev), ev));
+
+  function fallbackKey(ev){
+    if(!ev.venue || !ev.dateObj) return null;
+    const day = ev.dateObj.slice(0, 10); // calendar date only, ignore time
+    const codeSuffix = ev.code && ev.code.trim() ? '|code:' + ev.code.trim().toLowerCase() : '';
+    return 'fb:' + ev.venue.trim().toLowerCase() + '|' + day + codeSuffix;
+  }
+  const fallbackMap = new Map();
+  existing.forEach(ev => {
+    const fk = fallbackKey(ev);
+    if(fk && !fallbackMap.has(fk)) fallbackMap.set(fk, ev);
+  });
+
+  incoming.forEach(inc => {
+    const key = eventKey(inc);
+    let target = map.get(key);
+    if(!target){
+      const fk = fallbackKey(inc);
+      if(fk && fallbackMap.has(fk)) target = fallbackMap.get(fk);
+    }
+    if(target){
+      // A presale sheet's own date column is usually just the calendar
+      // day with no showtime ("Thu 1/21"), which parses to midnight —
+      // genuinely less information than a sales-tracker export's
+      // "1/21/2027 7:30 PM". Blindly letting the incoming date win would
+      // downgrade a real, already-known showtime to a fake midnight one
+      // any time the two sides only agree on the day. So: skip adopting
+      // the incoming date when it's the same calendar day but a bare
+      // midnight stand-in for "no time given," and only let it through
+      // when it's an actual different day (a real correction) or it
+      // brings its own real time.
+      let skipDate = false;
+      if(target.dateObj && inc.dateObj){
+        const existingD = new Date(target.dateObj), incomingD = new Date(inc.dateObj);
+        const sameDay = existingD.getFullYear() === incomingD.getFullYear()
+          && existingD.getMonth() === incomingD.getMonth()
+          && existingD.getDate() === incomingD.getDate();
+        const incomingIsMidnight = incomingD.getHours() === 0 && incomingD.getMinutes() === 0;
+        const existingHasRealTime = !(existingD.getHours() === 0 && existingD.getMinutes() === 0);
+        if(sameDay && incomingIsMidnight && existingHasRealTime) skipDate = true;
+      }
+      const merged = { ...target };
+      Object.keys(inc).forEach(k => {
+        const v = inc[k];
+        if(k === 'extraFields'){
+          if(v && Object.keys(v).length) merged.extraFields = { ...(target.extraFields || {}), ...v };
+        } else if((k === 'dateStr' || k === 'dateObj') && skipDate){
+          // keep target's existing, more precise value
+        } else if(v !== '' && v !== null && v !== undefined){
+          merged[k] = v;
+        }
+      });
+      map.delete(eventKey(target));
+      map.set(eventKey(merged), merged);
+    } else {
+      map.set(key, inc);
+    }
+  });
   return Array.from(map.values());
 }
 
