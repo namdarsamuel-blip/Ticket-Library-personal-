@@ -9,15 +9,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#121214;
-    --card:#1c1c20;
-    --card-hover:#212126;
-    --hairline:#302f34;
-    --dash:#3c3b41;
-    --text:#eae7e0;
-    --muted:#8f8d92;
+    /* DataIQ-style theme: deep navy surfaces with a bright cyan accent,
+       in place of the old neutral-gray/teal palette — everything below
+       is driven off these same variables, so this swap is most of the
+       re-theme on its own. */
+    --bg:#0f172a;
+    --card:#1e293b;
+    --card-hover:#243347;
+    --hairline:#334155;
+    --dash:#475569;
+    --text:#e7edf5;
+    --muted:#93a3b8;
     --amber:#f2c14e;
-    --teal:#4fc8bf;
+    --teal:#22d3ee;
+    --teal-ink:#072330;
     --coral:#ff6b6a;
     --today:#e8543f;
     --tm-blue:#0a5cff;
@@ -85,7 +90,7 @@
     flex-direction:column;
     overflow:hidden;
   }
-  ::selection{background:var(--amber);color:#121214;}
+  ::selection{background:var(--amber);color:var(--bg);}
 
   html{ scrollbar-width:thin; scrollbar-color:var(--hairline) var(--bg); }
   ::-webkit-scrollbar{ width:10px; height:10px; }
@@ -376,8 +381,8 @@
   .tl-list-table thead th{
     text-align:left; font-family:'IBM Plex Mono',monospace; font-size:9.5px;
     letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
-    font-weight:600; padding:8px 10px; border-bottom:1.5px solid rgba(79,200,191,.35);
-    position:sticky; top:0; background:#18181b; z-index:1; white-space:nowrap;
+    font-weight:600; padding:8px 10px; border-bottom:1.5px solid rgba(34,211,238,.35);
+    position:sticky; top:0; background:var(--card); z-index:1; white-space:nowrap;
   }
   .tl-list-table thead th.tl-th-rating{text-align:center;}
   .tl-list-table thead th.tl-col-divider{border-left:1px solid var(--hairline); padding-left:14px;}
@@ -388,7 +393,7 @@
   }
   .tl-list-row td.tl-col-divider{border-left:1px solid var(--hairline); padding-left:14px;}
   .tl-list-row:last-child td{border-bottom:none;}
-  .tl-list-row:nth-child(even) td{background:rgba(79,200,191,.025);}
+  .tl-list-row:nth-child(even) td{background:rgba(34,211,238,.045);}
   .tl-list-row:hover td{background:var(--card-hover);}
   .tl-list-row.is-pinned td{background:rgba(242,193,78,.07);}
   .tl-list-row.is-pinned:hover td{background:rgba(242,193,78,.12);}
@@ -419,7 +424,7 @@
   .tl-list-section-row td{
     padding:9px 10px 6px; font-family:'Bebas Neue',sans-serif; font-size:15px;
     letter-spacing:.03em; color:var(--text); border-bottom:1px solid var(--hairline);
-    background:#18181b !important;
+    background:var(--card) !important;
   }
   /* Every row screaming "NEW" the moment a big sheet gets imported is
      just noise — a small dot carries the same information (something
@@ -438,13 +443,17 @@
      column gets colored by sign (up green, down the app's existing
      danger red) since that's the one piece of these numbers worth
      reading at a glance rather than digit-by-digit. */
-  .tl-th-extra{text-align:right; white-space:nowrap; color:#6f6d73;}
+  .tl-th-extra{
+    text-align:right; white-space:nowrap; color:var(--muted);
+    max-width:92px; overflow:hidden; text-overflow:ellipsis;
+  }
   .tl-list-extra{
     font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
     font-size:11px; color:var(--muted); text-align:right; white-space:nowrap;
   }
-  .tl-list-extra.is-up{color:#5fb87a;}
-  .tl-list-extra.is-down{color:#e07a7a;}
+  .tl-list-extra.is-up{color:#4ade80;}
+  .tl-list-extra.is-down{color:#f87171;}
+  .tl-list-extra.is-repeat{color:#45546b;}
   @media (max-width:900px){
     .tl-list-table{font-size:11.5px;}
     .tl-list-table thead th:nth-child(2), .tl-list-row .tl-list-venue{display:none;}
@@ -542,8 +551,8 @@
   .heading-fill{
     display:none;
     position:absolute;left:0;right:0;bottom:0;z-index:-1;
-    background:linear-gradient(to top, rgba(79,200,191,.5), rgba(79,200,191,.08));
-    border-top:1px solid rgba(79,200,191,.4);
+    background:linear-gradient(to top, rgba(34,211,238,.5), rgba(34,211,238,.08));
+    border-top:1px solid rgba(34,211,238,.4);
     pointer-events:none;
   }
   .day-heading.collapsible-heading.collapsed .heading-fill{display:block;}
@@ -562,7 +571,7 @@
      after turning shortcut mode on. */
   .heading-copy-link-btn{
     display:inline-flex;align-items:center;gap:5px;
-    background:var(--teal);color:#0d1a19;border:none;border-radius:999px;
+    background:var(--teal);color:var(--teal-ink);border:none;border-radius:999px;
     padding:5px 12px;font-size:11.5px;font-weight:700;
     font-family:system-ui, -apple-system, sans-serif;
     cursor:pointer;white-space:nowrap;flex:0 0 auto;
@@ -573,7 +582,7 @@
   .heading-copy-link-btn.copied .icon-copy{display:none;}
   .heading-copy-link-btn.copied .icon-check{display:block;}
   .heading-label:hover{background:var(--card-hover);}
-  .heading-label.copied-flash{background:var(--teal);color:#0d1a19;}
+  .heading-label.copied-flash{background:var(--teal);color:var(--teal-ink);}
   .collapse-caret{flex:0 0 auto;opacity:.55;transition:transform .15s ease;}
   .day-heading.collapsible-heading.collapsed .collapse-caret{transform:rotate(-90deg);}
   .day-heading.collapsible-heading.collapsed + .day-grid{display:none;}
@@ -625,7 +634,7 @@
        instead, which reads as tidy rather than broken. */
     min-height:112px;
   }
-  .day-heading.collapsible-heading.collapsed:hover{border-color:#4a4950;background:var(--card-hover);}
+  .day-heading.collapsible-heading.collapsed:hover{border-color:var(--dash);background:var(--card-hover);}
   .day-heading.collapsible-heading.collapsed .heading-icons,
   .day-heading.collapsible-heading.collapsed .heading-copy-link-btn,
   .day-heading.collapsible-heading.collapsed .bulk-open-links{
@@ -639,7 +648,7 @@
   }
   /* The heading currently "selected" for the number-key shortcuts —
      see the keydown/click handlers further down. */
-  .day-heading.tl-shortcut-selected{outline:2px solid var(--teal, #4fc8bf);outline-offset:-2px;border-radius:6px;}
+  .day-heading.tl-shortcut-selected{outline:2px solid var(--teal, #22d3ee);outline-offset:-2px;border-radius:6px;}
   /* Presale's "By presale time" view nests two heading levels — the
      hour ("10:00 AM presale") and, inside it, each artist. They used to
      share the exact same heading style, which made the hierarchy
@@ -741,7 +750,7 @@
     border:1px solid var(--hairline);background:transparent;color:var(--muted);
     cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease;
   }
-  .bulk-open-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.06);}
+  .bulk-open-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.06);}
   /* Resting state stays neutral/muted (same as every other button) —
      only on hover does each one pick up its own platform's color
      (matching .link-btn.site-tm etc. below), as the "about to act"
@@ -788,7 +797,7 @@
     transition:border-color .15s ease,background .15s ease,color .15s ease;
   }
   .bulk-open-toast-btn:hover{border-color:var(--teal);color:var(--teal);}
-  .bulk-open-toast-btn.primary{background:var(--teal);border-color:var(--teal);color:#0d1a19;}
+  .bulk-open-toast-btn.primary{background:var(--teal);border-color:var(--teal);color:var(--teal-ink);}
   .bulk-open-toast-btn.primary:hover{filter:brightness(1.08);}
   .bulk-open-toast-hint{
     flex-basis:100%;font-family:'Inter',sans-serif;font-size:11px;color:var(--muted);
@@ -826,7 +835,7 @@
        of only the one the data-density heuristic happened to cover. */
     container-type:inline-size;
   }
-  .ticket:hover{border-color:#4a4950;box-shadow:0 4px 14px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.02) inset;}
+  .ticket:hover{border-color:var(--dash);box-shadow:0 4px 14px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.02) inset;}
   /* The number/letter badge showing which keyboard shortcut opens this
      specific card — only appears on cards belonging to the currently
      selected group (see tlMarkSelectedGroupInDom), added directly as a
@@ -835,7 +844,7 @@
     position:absolute; top:7px; right:7px; z-index:3;
     min-width:25px; height:25px; padding:0 6px;
     display:flex; align-items:center; justify-content:center;
-    background:var(--teal, #4fc8bf); color:#0d1a19;
+    background:var(--teal, #22d3ee); color:var(--teal-ink);
     font-size:14px; font-weight:900; font-family:system-ui, -apple-system, sans-serif;
     border-radius:6px; text-transform:uppercase;
     border:1.5px solid rgba(13,26,25,.25);
@@ -856,7 +865,7 @@
     box-shadow:0 0 0 1px rgba(242,193,78,.35), 0 4px 18px rgba(242,193,78,.16);
   }
   .ticket.is-starred:hover{box-shadow:0 0 0 1px rgba(242,193,78,.5), 0 4px 18px rgba(242,193,78,.22);}
-  .ticket.is-selected, .shift-block.is-selected{outline:2px solid var(--teal);outline-offset:-1px;background:rgba(79,200,191,.06);}
+  .ticket.is-selected, .shift-block.is-selected{outline:2px solid var(--teal);outline-offset:-1px;background:rgba(34,211,238,.06);}
   .select-check{
     position:absolute;top:10px;left:10px;z-index:5;
     width:22px;height:22px;border-radius:50%;
@@ -867,7 +876,7 @@
   .select-check.checked{background:var(--teal);border-color:var(--teal);}
   .select-check.checked::after{
     content:"";position:absolute;top:5px;left:7px;width:5px;height:9px;
-    border:solid #0d211f;border-width:0 2px 2px 0;transform:rotate(45deg);
+    border:solid var(--teal-ink);border-width:0 2px 2px 0;transform:rotate(45deg);
   }
   /* The checkbox floats over the top-left corner — give the header
      content room to start clear of it instead of sitting underneath. */
@@ -1013,9 +1022,9 @@
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   }
   .ev-name-clickable{cursor:pointer;}
-  .ev-name-clickable:hover{text-decoration:underline;text-decoration-color:rgba(79,200,191,.5);}
+  .ev-name-clickable:hover{text-decoration:underline;text-decoration-color:rgba(34,211,238,.5);}
   .ev-sub-clickable{cursor:pointer;}
-  .ev-sub-clickable:hover{text-decoration:underline;text-decoration-color:rgba(79,200,191,.5);}
+  .ev-sub-clickable:hover{text-decoration:underline;text-decoration-color:rgba(34,211,238,.5);}
   .ev-venue{
     font-size:var(--f-venue);color:var(--text);opacity:.78;
     line-height:1.35;
@@ -1127,8 +1136,8 @@
   /* A note-bearing card should visibly differ from an empty "+" one at a
      glance, not just on hover — a very faint tint plus a slightly
      brighter top border does that without being loud. */
-  .notes-preview.has-content{background:rgba(79,200,191,.035);border-top-color:rgba(79,200,191,.25);}
-  .notes-preview.has-content:hover{background:rgba(79,200,191,.06);}
+  .notes-preview.has-content{background:rgba(34,211,238,.035);border-top-color:rgba(34,211,238,.25);}
+  .notes-preview.has-content:hover{background:rgba(34,211,238,.06);}
   .shift-block .notes-preview{min-height:0;padding:6px 14px 8px;}
   .notes-preview.no-content{display:flex;align-items:center;justify-content:center;}
   .notes-plus{color:var(--muted);opacity:.3;font-size:15px;line-height:1;}
@@ -1187,7 +1196,7 @@
     padding:9px 11px;outline:none;
     transition:border-color .15s ease, box-shadow .15s ease;
   }
-  .notes-textarea:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(79,200,191,.12);}
+  .notes-textarea:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(34,211,238,.12);}
 
   /* ---------- Presale cards ---------- */
   /* Presale cards are capped at 3 columns (see renderPresale), so they
@@ -1242,7 +1251,7 @@
     padding:6px 8px;outline:none;
     transition:border-color .15s ease, box-shadow .15s ease;
   }
-  .presale-link-input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(79,200,191,.1);}
+  .presale-link-input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(34,211,238,.1);}
   /* Extra links get an editable label (short input, not fixed text)
      since there's no platform name to assume, plus a remove button the
      fixed TM/Vivid/Stub rows don't have — those get cleared, not deleted. */
@@ -1253,7 +1262,7 @@
     padding:6px 7px;outline:none;
     transition:border-color .15s ease, box-shadow .15s ease;
   }
-  .presale-link-label-input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(79,200,191,.1);}
+  .presale-link-label-input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(34,211,238,.1);}
   .extra-link-remove{
     flex:0 0 auto;width:22px;height:22px;border-radius:6px;
     border:1px solid transparent;background:transparent;color:var(--muted);
@@ -1326,7 +1335,7 @@
     cursor:pointer;transition:border-color .15s ease, color .15s ease, background .15s ease, transform .1s ease;
   }
   .price-chip:active{transform:scale(.96);}
-  .price-chip:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.06);}
+  .price-chip:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.06);}
   /* Modifier chips (e.g. "Center" / "Off Center" / "Primos" / "Back
      Bowl" — venue-specific sub-areas the quick-add price buttons below
      apply to) had a working active-state toggle in JS but no CSS at all
@@ -1373,7 +1382,7 @@
   .panel-archive-btn:active, .panel-delete-btn:active, .panel-release-btn:active{transform:scale(.97);}
   .panel-archive-btn:hover{border-color:var(--amber);color:var(--amber);background:rgba(242,193,78,.06);}
   .panel-delete-btn:hover{border-color:var(--coral);color:var(--coral);background:rgba(255,107,106,.06);}
-  .panel-release-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.06);}
+  .panel-release-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.06);}
 
   /* ---------- Trash ---------- */
   .ticket.is-trashed{opacity:.88;}
@@ -1390,7 +1399,7 @@
     cursor:pointer;transition:border-color .15s ease, color .15s ease, background .15s ease, transform .1s ease;
   }
   .trash-restore-btn:active, .trash-forever-btn:active{transform:scale(.97);}
-  .trash-restore-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.06);}
+  .trash-restore-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.06);}
   .trash-forever-btn:hover{border-color:var(--coral);color:var(--coral);background:rgba(255,107,106,.06);}
 
   /* ---------- Cloud sync ---------- */
@@ -1525,8 +1534,8 @@
   .add-show-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;}
   .add-show-label-optional{text-transform:none;letter-spacing:normal;opacity:.7;}
   .add-show-hint{
-    font-size:11.5px;color:var(--teal);background:rgba(79,200,191,.08);
-    border:1px solid rgba(79,200,191,.3);border-radius:7px;padding:8px 10px;margin-bottom:12px;
+    font-size:11.5px;color:var(--teal);background:rgba(34,211,238,.08);
+    border:1px solid rgba(34,211,238,.3);border-radius:7px;padding:8px 10px;margin-bottom:12px;
   }
   .add-show-paste-input{resize:vertical;font-family:'Inter',sans-serif;line-height:1.5;}
   .add-show-paste-note{font-size:11px;color:var(--muted);margin:5px 0 0;}
@@ -1573,7 +1582,7 @@
   }
   .add-show-submit-btn{
     width:100%;font-family:'Inter',sans-serif;font-size:13.5px;font-weight:700;
-    padding:11px;border-radius:8px;border:none;background:var(--teal);color:#0d1a19;
+    padding:11px;border-radius:8px;border:none;background:var(--teal);color:var(--teal-ink);
     cursor:pointer;transition:filter .15s ease;margin-top:4px;
   }
   .add-show-submit-btn:hover{filter:brightness(1.08);}
@@ -1632,7 +1641,7 @@
     border:1px solid var(--hairline);background:var(--card);color:var(--teal);
     cursor:pointer;transition:border-color .15s ease,background .15s ease;
   }
-  .history-search-restore-btn:hover{border-color:var(--teal);background:rgba(79,200,191,.08);}
+  .history-search-restore-btn:hover{border-color:var(--teal);background:rgba(34,211,238,.08);}
   .history-search-restore-row{position:absolute;top:12px;right:14px;display:flex;gap:6px;}
   .history-search-delete-btn{
     font-family:'Inter',sans-serif;font-size:11.5px;font-weight:600;
@@ -1785,7 +1794,7 @@
   }
   .tl-scratchpad-lastkey{
     display:flex; flex-direction:column; align-items:center; gap:2px;
-    color:#0d1a19; text-align:center;
+    color:var(--teal-ink); text-align:center;
     padding:10px 24px; border-radius:10px; background:var(--teal);
     border:none; box-shadow:0 2px 10px rgba(0,0,0,.4);
     white-space:nowrap; cursor:pointer; font-family:inherit;
@@ -1814,7 +1823,7 @@
     cursor:pointer; padding:0;
   }
   .tl-scratchpad-copy-btn:hover{background:var(--card-hover); color:var(--text);}
-  .tl-scratchpad-copy-btn.copied{color:#0d1a19; background:var(--teal); border-color:var(--teal);}
+  .tl-scratchpad-copy-btn.copied{color:var(--teal-ink); background:var(--teal); border-color:var(--teal);}
   .tl-scratchpad-copy-btn.copied .icon-copy{display:none;}
   .tl-scratchpad-copy-btn.copied .icon-check{display:block;}
   .empty .ticket-icon{font-size:40px;margin-bottom:14px;}
@@ -1856,7 +1865,7 @@
     background:transparent;color:var(--text);cursor:pointer;
     transition:border-color .15s ease,background .15s ease,color .15s ease;
   }
-  .jump-name-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.08);}
+  .jump-name-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.08);}
   /* Pinned pills sort to the front and get filled solid yellow — meant
      to read as "starred/favorited", unmistakably different from the
      plain outlined pills around it, not just a differently-colored star
@@ -1887,7 +1896,7 @@
     background:transparent;color:var(--text);cursor:pointer;
     transition:border-color .15s ease,background .15s ease,color .15s ease;
   }
-  .az-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(79,200,191,.08);}
+  .az-btn:hover{border-color:var(--teal);color:var(--teal);background:rgba(34,211,238,.08);}
   .az-btn-empty{color:var(--muted);opacity:.3;cursor:default;border-color:transparent;}
   .az-btn-empty:hover{border-color:transparent;color:var(--muted);background:transparent;}
   .jump-bar-toggle{
@@ -1903,7 +1912,7 @@
     margin-top:10px;background:transparent;border:1px dashed var(--teal);color:var(--teal);
     font-family:'Inter',sans-serif;font-size:13px;padding:6px 14px;border-radius:8px;cursor:pointer;
   }
-  .did-you-mean-btn:hover{background:rgba(79,200,191,.08);}
+  .did-you-mean-btn:hover{background:rgba(34,211,238,.08);}
   .did-you-mean-btn b{color:var(--text);}
   .sheet-badge{
     display:inline-flex;align-items:center;gap:4px;
@@ -1912,7 +1921,7 @@
     padding:3px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;
   }
   .sheet-badge-link{cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;}
-  .sheet-badge-link:hover{background:rgba(79,200,191,.12);border-color:var(--teal);color:var(--teal);}
+  .sheet-badge-link:hover{background:rgba(34,211,238,.12);border-color:var(--teal);color:var(--teal);}
   .search-pin-flag{font-size:12px;flex:0 0 auto;}
 
   /* ============================================================
@@ -7237,7 +7246,7 @@ function renderPresale(){
   // change is an unmistakable "new hour starts here" cue, not just
   // another identical-looking heading. Picked for contrast against each
   // other and against the app's existing teal/amber/pink accent colors.
-  const HOUR_BAND_COLORS = ['#4fc8bf', '#e8846b', '#a78bfa', '#6fcf7f', '#f2c14e', '#5b9bd5', '#e879a8', '#c9a869'];
+  const HOUR_BAND_COLORS = ['#22d3ee', '#e8846b', '#a78bfa', '#6fcf7f', '#f2c14e', '#5b9bd5', '#e879a8', '#c9a869'];
   let hourBandIndex = 0;
   groups.forEach(g => {
     const firstEv = g.events[0];
@@ -7850,7 +7859,7 @@ function renderListView(){
     showPrices ? '<th class="tl-th-prices">Prices</th>' : '',
     showNotes ? '<th class="tl-th-note">Notes</th>' : '',
     '<th class="tl-th-links">Links</th>',
-    extraKeys.map((k, i) => `<th class="tl-th-extra${i === 0 ? ' tl-col-divider' : ''}">${escapeHtml(k)}</th>`).join('')
+    extraKeys.map((k, i) => `<th class="tl-th-extra${i === 0 ? ' tl-col-divider' : ''}" title="${escapeHtml(k)}">${escapeHtml(k)}</th>`).join('')
   ].filter(Boolean).join('');
 
   listRoot.innerHTML = `<div class="tl-list-wrap"><table class="tl-list-table">
@@ -7900,19 +7909,29 @@ function tlListRowHtml(ev, showPrices, showNotes, extraKeys){
     ${showPrices ? `<td class="tl-list-prices">${pricesCell}</td>` : ''}
     ${showNotes ? `<td class="tl-list-note" ${noteText ? `title="${escapeHtml(noteText)}"` : ''}>${noteText ? escapeHtml(noteText) : '<span class="tl-list-dash">—</span>'}</td>` : ''}
     <td class="tl-list-links">${links || '<span class="no-links">—</span>'}</td>
-    ${(extraKeys || []).map((k, i) => {
-      const v = (ev.extraFields || {})[k];
-      const dividerClass = i === 0 ? ' tl-col-divider' : '';
-      // A "change" column (day-over-day ATP shift, etc.) is the one kind
-      // of extra data worth coloring by sign — up/down is the actual
-      // takeaway, not just a number to read digit by digit.
-      let signClass = '';
-      if(v && /change/i.test(k)){
-        if(/^-/.test(v.trim())) signClass = ' is-down';
-        else if(parseFloat(v) > 0) signClass = ' is-up';
-      }
-      return `<td class="tl-list-extra${dividerClass}${signClass}">${v ? escapeHtml(v) : '<span class="tl-list-dash">—</span>'}</td>`;
-    }).join('')}
+    ${(() => {
+      // Export columns like "Qty Sold Prior 3/7/14/30" are very often the
+      // same number copied across several columns (nothing changed in
+      // that window) — printed at full strength every time, that reads
+      // as more data than there is. Repeating the exact same value right
+      // next to itself gets dimmed so the eye lands on the column where
+      // the number actually moves; change columns are left untouched
+      // since those stay the one thing worth reading at full strength
+      // regardless of repeats.
+      let prevVal = null;
+      return (extraKeys || []).map((k, i) => {
+        const v = (ev.extraFields || {})[k];
+        const dividerClass = i === 0 ? ' tl-col-divider' : '';
+        let signClass = '';
+        if(v && /change/i.test(k)){
+          if(/^-/.test(v.trim())) signClass = ' is-down';
+          else if(parseFloat(v) > 0) signClass = ' is-up';
+        }
+        const repeatClass = (!signClass && v && prevVal !== null && v === prevVal) ? ' is-repeat' : '';
+        prevVal = signClass ? null : v;
+        return `<td class="tl-list-extra${dividerClass}${signClass}${repeatClass}">${v ? escapeHtml(v) : '<span class="tl-list-dash">—</span>'}</td>`;
+      }).join('');
+    })()}
   </tr>`;
 }
 
